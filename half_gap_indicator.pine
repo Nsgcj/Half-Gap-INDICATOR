@@ -10,27 +10,16 @@ indicator("Half Gap Liquidity Indicator [Multi-Asset]", overlay=true, shorttitle
 
 // --- Asset Type Detection ---
 grp_asset = "Asset Configuration"
-asset_type = input.string("Auto-Detect", "Asset Type",
-                         options=["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals"],
-                         group=grp_asset,
-                         tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
+asset_type = input.string("Auto-Detect", "Asset Type", options=["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals"], group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
 
 // --- Session Settings ---
 grp_session = "Session Settings"
-session_start = input.session("0930-1600", "Trading Session (NY Time)",
-                              group=grp_session,
-                              tooltip="For Stocks: 0930-1600 | Forex: 1700-1700 | Futures: varies by contract")
-time_zone     = input.string("America/New_York", "Timezone",
-                            options=["America/New_York", "America/Chicago", "Europe/London", "Asia/Tokyo", "UTC"],
-                            group=grp_session)
-use_reg_hours = input.bool(true, "Use Regular Hours Only",
-                          group=grp_session,
-                          tooltip="Filters logic to apply only within specified session. Disable for 24hr markets.")
+session_start = input.session("0930-1600", "Trading Session (NY Time)", group=grp_session, tooltip="For Stocks: 0930-1600 | Forex: 1700-1700 | Futures: varies by contract")
+time_zone     = input.string("America/New_York", "Timezone", options=["America/New_York", "America/Chicago", "Europe/London", "Asia/Tokyo", "UTC"], group=grp_session)
+use_reg_hours = input.bool(true, "Use Regular Hours Only", group=grp_session, tooltip="Filters logic to apply only within specified session. Disable for 24hr markets.")
 
 // Custom daily reset time for 24hr markets
-custom_reset_hour = input.int(17, "Daily Reset Hour (24hr markets)",
-                             minval=0, maxval=23, group=grp_session,
-                             tooltip="For Forex/Crypto: Hour when 'new day' starts (e.g., 17 = 5 PM NY rollover)")
+custom_reset_hour = input.int(17, "Daily Reset Hour (24hr markets)", minval=0, maxval=23, group=grp_session, tooltip="For Forex/Crypto: Hour when 'new day' starts (e.g., 17 = 5 PM NY rollover)")
 
 // --- Visual Settings ---
 grp_visual = "Visual Settings"
@@ -47,8 +36,7 @@ show_zones    = input.bool(true, "Show Half Gap Zone", group=grp_visual, tooltip
 zone_width    = input.float(0.15, "Half Gap Zone Width (%)", minval=0.05, maxval=1.0, step=0.05, group=grp_visual) / 100
 
 // Line break behavior
-break_lines   = input.bool(true, "Break Lines at Session Change", group=grp_visual,
-                          tooltip="If enabled, lines will restart each session instead of continuing")
+break_lines   = input.bool(true, "Break Lines at Session Change", group=grp_visual, tooltip="If enabled, lines will restart each session instead of continuing")
 
 // --- Calculation Settings ---
 grp_calc = "Calculation Settings"
@@ -56,8 +44,7 @@ vol_len       = input.int(20, "Volume MA Length", minval=1, group=grp_calc)
 tol_pct       = input.float(0.01, "Position Tolerance (%)", minval=0.0, step=0.01, group=grp_calc) / 100
 
 // Minimum gap threshold to generate signals
-min_gap_pct   = input.float(0.05, "Minimum Gap % for Signals", minval=0.0, step=0.05, group=grp_calc,
-                           tooltip="Gaps smaller than this % are considered FLAT (no signal)")
+min_gap_pct   = input.float(0.05, "Minimum Gap % for Signals", minval=0.0, step=0.05, group=grp_calc, tooltip="Gaps smaller than this % are considered FLAT (no signal)")
 
 // =============================================================================
 // 2. ASSET TYPE DETECTION
@@ -353,26 +340,15 @@ if show_zones and display_condition
 
 // Labels (Only show on the last bar to avoid clutter)
 if show_labels and display_condition and barstate.islast
-    label.new(bar_index, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick),
-              color=color.new(color.black, 100), style=label.style_none,
-              textcolor=c_pdc_line, textalign=text.align_left, size=size.small)
-
-    label.new(bar_index, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick),
-              color=color.new(color.black, 100), style=label.style_none,
-              textcolor=c_cdo_line, textalign=text.align_left, size=size.small)
-
-    label.new(bar_index, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick),
-              color=color.new(color.black, 100), style=label.style_none,
-              textcolor=color_hg, textalign=text.align_left, size=size.normal)
+    label.new(bar_index, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_line, textalign=text.align_left, size=size.small)
+    label.new(bar_index, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_line, textalign=text.align_left, size=size.small)
+    label.new(bar_index, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=color_hg, textalign=text.align_left, size=size.normal)
 
 // =============================================================================
 // 7. INFO DASHBOARD
 // =============================================================================
 
-var table info_table = table.new(position.bottom_right, 2, 6,
-                                 bgcolor=color.new(color.black, 50),
-                                 border_color=color.gray, border_width=1,
-                                 frame_color=color.gray, frame_width=1)
+var table info_table = table.new(position.bottom_right, 2, 6, bgcolor=color.new(color.black, 50), border_color=color.gray, border_width=1, frame_color=color.gray, frame_width=1)
 
 if show_table and barstate.islast and display_condition
     // Row 0: Asset Type
@@ -381,20 +357,15 @@ if show_table and barstate.islast and display_condition
 
     // Row 1: Bias
     table.cell(info_table, 0, 1, "Bias", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 1, signal_bias,
-               text_color=signal_bias=="BULLISH" ? color.green : (signal_bias=="BEARISH" ? color.red : color.gray),
-               text_halign=text.align_right)
+    table.cell(info_table, 1, 1, signal_bias, text_color=signal_bias=="BULLISH" ? color.green : (signal_bias=="BEARISH" ? color.red : color.gray), text_halign=text.align_right)
 
     // Row 2: Target
     table.cell(info_table, 0, 2, "Target", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 2, not na(signal_target) ? str.tostring(signal_target, format.mintick) : "—",
-               text_color=color.white, text_halign=text.align_right)
+    table.cell(info_table, 1, 2, not na(signal_target) ? str.tostring(signal_target, format.mintick) : "—", text_color=color.white, text_halign=text.align_right)
 
     // Row 3: Confidence
     table.cell(info_table, 0, 3, "Conf", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 3, conf_level,
-               text_color=conf_level=="HIGH" ? color.green : (conf_level=="MEDIUM" ? color.orange : color.gray),
-               text_halign=text.align_right)
+    table.cell(info_table, 1, 3, conf_level, text_color=conf_level=="HIGH" ? color.green : (conf_level=="MEDIUM" ? color.orange : color.gray), text_halign=text.align_right)
 
     // Row 4: Gap Direction & Size
     gap_display = (gap_dir==1 ? "UP " : (gap_dir==-1 ? "DN " : "FLAT ")) + str.tostring(gap_pct, "#.##") + "%"
@@ -415,15 +386,11 @@ if show_table and barstate.islast and display_condition
 alertcondition(ta.cross(close, half_gap), "Half Gap Cross", "Price crossed Half Gap at {{close}}")
 alertcondition(ta.crossover(close, half_gap), "Half Gap Bullish Cross", "Price crossed ABOVE Half Gap - Potential Bullish")
 alertcondition(ta.crossunder(close, half_gap), "Half Gap Bearish Cross", "Price crossed BELOW Half Gap - Potential Bearish")
-alertcondition(signal_bias == "BULLISH" and conf_level == "HIGH" and signal_bias[1] != "BULLISH",
-               "High Confidence Bullish", "HIGH confidence BULLISH signal generated")
-alertcondition(signal_bias == "BEARISH" and conf_level == "HIGH" and signal_bias[1] != "BEARISH",
-               "High Confidence Bearish", "HIGH confidence BEARISH signal generated")
+alertcondition(signal_bias == "BULLISH" and conf_level == "HIGH" and signal_bias[1] != "BULLISH", "High Confidence Bullish", "HIGH confidence BULLISH signal generated")
+alertcondition(signal_bias == "BEARISH" and conf_level == "HIGH" and signal_bias[1] != "BEARISH", "High Confidence Bearish", "HIGH confidence BEARISH signal generated")
 
 // Target reached alerts
-target_reached = not na(signal_target) and
-                 ((signal_bias == "BULLISH" and close >= signal_target) or
-                  (signal_bias == "BEARISH" and close <= signal_target))
+target_reached = not na(signal_target) and ((signal_bias == "BULLISH" and close >= signal_target) or (signal_bias == "BEARISH" and close <= signal_target))
 
 alertcondition(target_reached, "Target Reached", "Price reached target level: {{close}}")
 
@@ -432,10 +399,8 @@ alertcondition(target_reached, "Target Reached", "Price reached target level: {{
 // =============================================================================
 
 // Background color based on position state (subtle)
-bgcolor_pos = pos_state == 1 ? color.new(color.green, 98) :
-              (pos_state == -1 ? color.new(color.red, 98) : na)
+bgcolor_pos = pos_state == 1 ? color.new(color.green, 98) : (pos_state == -1 ? color.new(color.red, 98) : na)
 bgcolor(display_condition ? bgcolor_pos : na, title="Position State Background")
 
 // Plot target level as dotted line
-plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na,
-     "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
+plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na, "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
