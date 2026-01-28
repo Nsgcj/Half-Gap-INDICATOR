@@ -1,0 +1,211 @@
+//@version=5
+indicator("Half Gap Liquidity Indicator", overlay=true, shorttitle="Half Gap")
+
+// =============================================================================
+// 1. INPUTS
+// =============================================================================
+
+// --- Session Settings ---
+grp_session = "Session Settings"
+session_start = input.session("0930-1600", "Trading Session (NY Time)", group=grp_session) // Default US Equity Hours
+time_zone     = input.string("America/New_York", "Timezone", group=grp_session)
+use_reg_hours = input.bool(true, "Use Regular Hours Only", group=grp_session, tooltip="Filters logic to apply only within the specified session times.")
+
+// --- Visual Settings ---
+grp_visual = "Visual Settings"
+color_upper   = input.color(color.green, "Upper Boundary Color", group=grp_visual)
+color_lower   = input.color(color.red, "Lower Boundary Color", group=grp_visual)
+color_hg      = input.color(color.white, "Half Gap Color", group=grp_visual)
+color_fill_up = input.color(color.new(color.green, 90), "Zone Fill (Bullish Gap)", group=grp_visual)
+color_fill_dn = input.color(color.new(color.red, 90), "Zone Fill (Bearish Gap)", group=grp_visual)
+color_fill_fl = input.color(color.new(color.gray, 90), "Zone Fill (Flat)", group=grp_visual)
+show_labels   = input.bool(true, "Show Price Labels", group=grp_visual)
+show_table    = input.bool(true, "Show Info Panel", group=grp_visual)
+
+// --- Calculation Settings ---
+grp_calc = "Calculation Settings"
+vol_len       = input.int(20, "Volume MA Length", minval=1, group=grp_calc)
+tol_pct       = input.float(0.01, "Position Tolerance (%)", minval=0.0, step=0.01, group=grp_calc) / 100
+
+// =============================================================================
+// 2. DATA ACQUISITION & CALCULATIONS
+// =============================================================================
+
+// Helper function to get daily data securely
+// We use lookahead_on to get the day's open immediately at the start of the day for historical bars
+// However, for real-time, standard behavior is safer.
+// Standard request.security for "D" returns the *current* day's growing bar.
+// Open of "D" is stable. Close of "D"[1] is stable.
+get_daily_data() =>
+    d_open  = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
+    d_close_prev = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+    [d_open, d_close_prev]
+
+[cdo, pdc] = get_daily_data()
+
+// Core Calculations
+half_gap = (pdc + cdo) / 2
+gap_dir  = cdo > pdc ? 1 : (cdo < pdc ? -1 : 0) // 1=UP, -1=DOWN, 0=FLAT
+upper_b  = math.max(pdc, cdo)
+lower_b  = math.min(pdc, cdo)
+gap_mag  = math.abs(cdo - pdc)
+
+// Session Logic
+// Check if current bar is within the user-defined session
+is_in_session(sess_str) =>
+    not na(time(timeframe.period, sess_str, time_zone))
+
+in_session = is_in_session(session_start)
+
+// =============================================================================
+// 3. POSITION STATE & SIGNAL LOGIC
+// =============================================================================
+
+// Position State
+// We add a tolerance band around Half Gap
+hg_tolerance = half_gap * tol_pct
+pos_state = 0 // 0=AT, 1=ABOVE, -1=BELOW
+
+if close > (half_gap + hg_tolerance)
+    pos_state := 1
+else if close < (half_gap - hg_tolerance)
+    pos_state := -1
+else
+    pos_state := 0
+
+// Momentum Logic
+// Bullish: Green bar AND higher close
+// Bearish: Red bar AND lower close
+is_bull_mom = (close > open) and (close > close[1])
+is_bear_mom = (close < open) and (close < close[1])
+
+// Volume Logic
+vol_sma = ta.sma(volume, vol_len)
+is_high_vol = volume > vol_sma
+
+// Time Held Counter (Simplified)
+// We track how many consecutive bars we have been in the current state
+// Note: This resets if state flips to 0 (AT_HALF)
+var int state_counter = 0
+if pos_state == 1
+    if pos_state[1] == 1
+        state_counter := state_counter + 1
+    else
+        state_counter := 1
+else if pos_state == -1
+    if pos_state[1] == -1
+        state_counter := state_counter + 1
+    else
+        state_counter := 1
+else
+    state_counter := 0
+
+// Signal Generation
+var string signal_bias = "NEUTRAL"
+var float signal_target = na
+var string conf_level = "LOW"
+
+// Logic:
+// Gap DOWN (PDC > CDO):
+//   - Above HG -> Bullish (Fill gap back to PDC)
+//   - Below HG -> Bearish (Continue down from CDO)
+// Gap UP (CDO > PDC):
+//   - Above HG -> Bullish (Continue up from CDO)
+//   - Below HG -> Bearish (Fill gap down to PDC)
+
+if gap_dir == -1 // Gap Down
+    if pos_state == 1 // Above HG
+        signal_bias := "BULLISH"
+        signal_target := pdc
+    else if pos_state == -1 // Below HG
+        signal_bias := "BEARISH"
+        signal_target := cdo
+    else
+        signal_bias := "NEUTRAL"
+        signal_target := na
+else if gap_dir == 1 // Gap Up
+    if pos_state == 1 // Above HG
+        signal_bias := "BULLISH"
+        signal_target := cdo
+    else if pos_state == -1 // Below HG
+        signal_bias := "BEARISH"
+        signal_target := pdc
+    else
+        signal_bias := "NEUTRAL"
+        signal_target := na
+else // Flat
+    signal_bias := "NEUTRAL"
+    signal_target := na
+
+// Confidence Scoring
+// Base score = 0
+// +1 if High Volume
+// +1 if Momentum Aligned
+// +1 if Held > 15 mins (approx 3 bars on 5m, 1 bar on 15m... let's use bar count > 3 for simplicity or check time)
+// Let's use bar count > 5 for "established"
+score = 0
+if is_high_vol
+    score := score + 1
+
+if (signal_bias == "BULLISH" and is_bull_mom) or (signal_bias == "BEARISH" and is_bear_mom)
+    score := score + 1
+
+if state_counter > 5
+    score := score + 1
+
+if score >= 3
+    conf_level := "HIGH"
+else if score >= 2
+    conf_level := "MEDIUM"
+else
+    conf_level := "LOW"
+
+if signal_bias == "NEUTRAL"
+    conf_level := "N/A"
+
+// =============================================================================
+// 4. VISUALIZATION
+// =============================================================================
+
+// Colors Logic
+c_pdc_line = pdc == upper_b ? color_upper : color_lower
+c_cdo_line = cdo == upper_b ? color_upper : color_lower
+
+// Only plot if in session (or if regular hours check is disabled)
+display_condition = use_reg_hours ? in_session : true
+
+// Plot Lines
+p_pdc = plot(display_condition ? pdc : na, "PDC", color=c_pdc_line, style=plot.style_line, linewidth=1)
+p_cdo = plot(display_condition ? cdo : na, "CDO", color=c_cdo_line, style=plot.style_line, linewidth=1)
+p_hg  = plot(display_condition ? half_gap : na, "Half Gap", color=color_hg, style=plot.style_linebr, linewidth=2) // linebr for dashed appearance in other styles, but style_linebr actually breaks on nan. Use style_circles or just line with transparency?
+// Pine Script 'plot' doesn't support 'dashed' directly in the function arguments like line.new does.
+// However, style=plot.style_line is standard. For DASHED, we might need line.new,
+// BUT using plot is better for fills. We will stick to plot for the main lines and fill.
+// Users can change style in settings manually if they want, or we can use plot.style_cross if we want discrete.
+// Actually, let's keep it simple style_line.
+
+// Zone Fill
+c_fill = gap_dir == 1 ? color_fill_up : (gap_dir == -1 ? color_fill_dn : color_fill_fl)
+fill(p_pdc, p_cdo, display_condition ? c_fill : na, "Redistribution Zone")
+
+// Labels (Only show on the last bar to avoid clutter)
+if show_labels and display_condition and barstate.islast
+    label.new(bar_index, pdc, "PDC: " + str.tostring(pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_line, textalign=text.align_left)
+    label.new(bar_index, cdo, "Open: " + str.tostring(cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_line, textalign=text.align_left)
+    label.new(bar_index, half_gap, "Half Gap: " + str.tostring(half_gap, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=color_hg, textalign=text.align_left)
+
+// Dashboard Table (Bottom Right)
+var table info_table = table.new(position.bottom_right, 2, 5, bgcolor=color.new(color.black, 50), border_color=color.gray, border_width=1, frame_color=color.gray, frame_width=1)
+
+if show_table and barstate.islast and display_condition
+    table.cell(info_table, 0, 0, "Bias", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 0, signal_bias, text_color=signal_bias=="BULLISH"?color.green:(signal_bias=="BEARISH"?color.red:color.gray), text_halign=text.align_right)
+
+    table.cell(info_table, 0, 1, "Target", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 1, str.tostring(signal_target, format.mintick), text_color=color.white, text_halign=text.align_right)
+
+    table.cell(info_table, 0, 2, "Conf", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 2, conf_level, text_color=conf_level=="HIGH"?color.green:(conf_level=="MEDIUM"?color.orange:color.gray), text_halign=text.align_right)
+
+    table.cell(info_table, 0, 3, "Gap", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 3, (gap_dir==1?"UP":(gap_dir==-1?"DOWN":"FLAT")), text_color=color.white, text_halign=text.align_right)
