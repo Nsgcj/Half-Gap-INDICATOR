@@ -97,15 +97,30 @@ get_optimized_params(type) =>
 
     if use_auto_settings
         if type == "Forex"
-            s := "1700-1700"; r := 17; g := 0.15; z := 0.001
+            s := "1700-1700"
+            r := 17
+            g := 0.15
+            z := 0.001
         else if type == "Crypto"
-            s := "0000-0000"; r := 0; g := 0.5; z := 0.005
+            s := "0000-0000"
+            r := 0
+            g := 0.5
+            z := 0.005
         else if type == "Gold/Metals" or type == "Energy" or type == "Futures"
-            s := "1800-1700"; r := 17; g := 0.1; z := 0.002
+            s := "1800-1700"
+            r := 17
+            g := 0.1
+            z := 0.002
         else if type == "Indices"
-            s := "1700-1700"; r := 17; g := 0.05; z := 0.0015
+            s := "1700-1700"
+            r := 17
+            g := 0.05
+            z := 0.0015
         else // Stocks
-            s := "0930-1600"; r := 17; g := 0.05; z := 0.0015
+            s := "0930-1600"
+            r := 17
+            g := 0.05
+            z := 0.0015
     [s, r, g, z]
 
 [opt_session, opt_reset, opt_gap, opt_zone] = get_optimized_params(current_asset_type)
