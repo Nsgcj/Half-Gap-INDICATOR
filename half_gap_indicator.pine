@@ -312,19 +312,21 @@ else // TRENDING
     is_uptrend = close > ema20
     is_downtrend = close < ema20
 
+    // Check if momentum is strong (current bull momentum OR consecutive green closes)
+    is_strong_bull = is_bull_mom or (close > close[1] and close[1] > close[2])
+    is_strong_bear = is_bear_mom or (close < close[1] and close[1] < close[2])
+
     if res_bias_val == 1 and is_uptrend
         // Resilience Bullish + Above EMA20 -> Bullish Trend
-        is_strong = is_bull_mom // Upgrade to STRONG if momentum aligns
-        signal_bias := is_strong ? "STRONG BULLISH TREND" : "BULLISH TREND"
+        signal_bias := is_strong_bull ? "STRONG BULLISH TREND" : "BULLISH TREND"
         signal_target := close + (atr_val * trend_atr_mult)
-        conf_level := is_strong ? "HIGH" : "MED"
+        conf_level := is_strong_bull ? "HIGH" : "MED"
 
     else if res_bias_val == -1 and is_downtrend
         // Resilience Bearish + Below EMA20 -> Bearish Trend
-        is_strong = is_bear_mom // Upgrade to STRONG if momentum aligns
-        signal_bias := is_strong ? "STRONG BEARISH TREND" : "BEARISH TREND"
+        signal_bias := is_strong_bear ? "STRONG BEARISH TREND" : "BEARISH TREND"
         signal_target := close - (atr_val * trend_atr_mult)
-        conf_level := is_strong ? "HIGH" : "MED"
+        conf_level := is_strong_bear ? "HIGH" : "MED"
 
     else
         signal_bias := "TRENDING"
@@ -425,3 +427,12 @@ alertcondition(target_reached_cond, "Target Reached", "Target Reached")
 
 // Target Plot
 plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na, "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
+
+// Background Color Polish (Bias Tint)
+bg_color_bias = na
+if str.contains(signal_bias, "BULLISH")
+    bg_color_bias := color.new(color.green, 95)
+else if str.contains(signal_bias, "BEARISH")
+    bg_color_bias := color.new(color.red, 95)
+
+bgcolor(display_condition ? bg_color_bias : na, title="Signal Bias Background")
