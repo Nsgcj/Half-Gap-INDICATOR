@@ -35,6 +35,7 @@ show_labels   = input.bool(true, "Show Price Labels", group=grp_visual)
 show_table    = input.bool(true, "Show Info Panel", group=grp_visual)
 show_zones    = input.bool(true, "Show Half Gap Zone", group=grp_visual, tooltip="Highlight band around Half Gap")
 zone_width_input = input.float(0.15, "Half Gap Zone Width (%)", minval=0.05, maxval=1.0, step=0.05, group=grp_visual) / 100
+label_offset_input = input.int(5, "Label Horizontal Offset (bars)", minval=0, group=grp_visual)
 
 // Line break behavior
 break_lines   = input.bool(true, "Break Lines at Session Change", group=grp_visual, tooltip="If enabled, lines will visually disconnect between sessions")
@@ -367,11 +368,11 @@ p_hg_bot = plot(should_plot_zones ? hg_bot : na, display=display.none)
 hg_fill_color = break_lines and is_start_bar ? color.new(color_hg, 100) : color.new(color_hg, 92)
 fill(p_hg_top, p_hg_bot, should_plot_zones ? hg_fill_color : na, "Half Gap Zone")
 
-// Labels
+// Labels (Staggered horizontally for no overlap)
 if show_labels and display_condition and barstate.islast
-    label.new(bar_index, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
-    label.new(bar_index, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
-    label.new(bar_index, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
+    label.new(bar_index + label_offset_input, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
+    label.new(bar_index + label_offset_input + 4, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
+    label.new(bar_index + label_offset_input + 8, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
 
 // =============================================================================
 // 7. DASHBOARD & ALERTS
