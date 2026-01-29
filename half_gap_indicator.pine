@@ -73,12 +73,13 @@ detect_asset_type() =>
     if asset_type != "Auto-Detect"
         detected := asset_type
     else
-        if type == "forex" or str.length(ticker) == 6
+        // Prioritize Gold/Metals detection over generic Forex
+        if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or ticker == "GOLD" or str.contains(ticker, "SI")
+            detected := "Gold/Metals"
+        else if type == "forex" or str.length(ticker) == 6
             detected := "Forex"
         else if type == "crypto" or str.contains(ticker, "BTC") or str.contains(ticker, "ETH") or str.contains(ticker, "USDT")
             detected := "Crypto"
-        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or ticker == "GOLD" or str.contains(ticker, "SI")
-            detected := "Gold/Metals"
         else if str.contains(ticker, "CL") or str.contains(ticker, "NG") or str.contains(ticker, "RB") or str.contains(ticker, "HO")
             detected := "Energy"
         // Prioritize indices/futures roots
@@ -369,11 +370,22 @@ p_hg_bot = plot(should_plot_zones ? hg_bot : na, display=display.none)
 hg_fill_color = break_lines and is_start_bar ? color.new(color_hg, 100) : color.new(color_hg, 92)
 fill(p_hg_top, p_hg_bot, should_plot_zones ? hg_fill_color : na, "Half Gap Zone")
 
-// Labels (Staggered horizontally for no overlap)
+// Labels (Staggered with background for readability)
 if show_labels and display_condition and barstate.islast
-    label.new(bar_index + label_offset_input, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
-    label.new(bar_index + label_offset_input + 4, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
-    label.new(bar_index + label_offset_input + 8, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
+    // PDC
+    label.new(bar_index + label_offset_input, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick),
+              color=color.new(color.gray, 85), style=label.style_label_left,
+              textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
+
+    // CDO (Offset +8)
+    label.new(bar_index + label_offset_input + 8, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick),
+              color=color.new(color.gray, 85), style=label.style_label_left,
+              textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
+
+    // Half Gap (Offset +16)
+    label.new(bar_index + label_offset_input + 16, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick),
+              color=color.new(color.gray, 85), style=label.style_label_left,
+              textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
 
 // =============================================================================
 // 7. DASHBOARD & ALERTS
