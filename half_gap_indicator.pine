@@ -261,35 +261,38 @@ if gap_pct < opt_gap
 // 5. RESILIENCE & MARKET BIAS CALCULATION
 // =============================================================================
 
+// Fetch Resilience Data (Global Scope - Unconditional)
+// We fetch all potential sources to avoid conditional request errors
+// Use ignore_invalid_symbol to prevent crashes if default tickers aren't available
+[spy_open_d, spy_close_prev_d] = request.security("SPY", "D", [open, close[1]], lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+spy_close_curr = request.security("SPY", timeframe.period, close, ignore_invalid_symbol=true)
+ext_symbol_val = request.security(res_symbol, timeframe.period, close, ignore_invalid_symbol=true)
+
 // Helper to get Resilience Bias (1=Bull, -1=Bear, 0=Neutral)
-get_resilience_bias() =>
+get_resilience_bias(mode, spy_o, spy_cp, spy_c, ext_sym, ext_src) =>
     int rb = 0
-    if resilience_mode == "SPY Proxy (Internal)"
+
+    if mode == "SPY Proxy (Internal)"
         // Calculate SPY Half Gap internally
-        [spy_open, spy_close_prev] = request.security("SPY", "D", [open, close[1]], lookahead=barmerge.lookahead_off)
-        spy_hg = (spy_open + spy_close_prev) / 2
-        spy_close = request.security("SPY", timeframe.period, close)
-        if not na(spy_hg)
-            rb := spy_close > spy_hg ? 1 : -1
+        spy_hg = (spy_o + spy_cp) / 2
+        if not na(spy_hg) and not na(spy_c)
+            rb := spy_c > spy_hg ? 1 : -1
 
-    else if resilience_mode == "External Symbol"
+    else if mode == "External Symbol"
         // Check if external symbol is positive/negative (assuming oscillator around 0)
-        // OR check if close > prev close if it's a price chart.
-        // Better assumption: If it's a "Resilience" index, > 0 is bullish.
-        res_val = request.security(res_symbol, timeframe.period, close)
-        if not na(res_val)
-            rb := res_val > 0 ? 1 : -1
+        if not na(ext_sym)
+            rb := ext_sym > 0 ? 1 : -1
 
-    else if resilience_mode == "External Indicator (Source)"
+    else if mode == "External Indicator (Source)"
         // Check source value directly
-        if not na(res_source)
-            rb := res_source > 0 ? 1 : -1
+        if not na(ext_src)
+            rb := ext_src > 0 ? 1 : -1
 
     else // None
         rb := 0
     rb
 
-res_bias_val = get_resilience_bias()
+res_bias_val = get_resilience_bias(resilience_mode, spy_open_d, spy_close_prev_d, spy_close_curr, ext_symbol_val, res_source)
 res_bias_str = res_bias_val == 1 ? "BULLISH" : (res_bias_val == -1 ? "BEARISH" : "NEUTRAL")
 
 // =============================================================================
