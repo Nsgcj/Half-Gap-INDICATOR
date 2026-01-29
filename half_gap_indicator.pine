@@ -47,6 +47,16 @@ tol_pct       = input.float(0.01, "Position Tolerance (%)", minval=0.0, step=0.0
 // Minimum gap threshold to generate signals
 min_gap_pct   = input.float(0.05, "Minimum Gap % for Signals", minval=0.0, step=0.05, group=grp_calc, tooltip="Gaps smaller than this % are considered FLAT (no signal)")
 
+// --- Resilience (Market Bias) Settings ---
+grp_res = "Resilience & Logic"
+resilience_mode = input.string("SPY Proxy (Internal)", "Resilience Source", options=["SPY Proxy (Internal)", "External Symbol", "External Indicator (Source)", "None"], group=grp_res, tooltip="Source for market-wide bias (Resilience). 'SPY Proxy' checks if SPY is above/below its own Half Gap.")
+res_symbol      = input.symbol("SPY", "External Resilience Symbol", group=grp_res, tooltip="Ticker to use if 'External Symbol' is selected.")
+res_source      = input.source(close, "External Resilience Source", group=grp_res, tooltip="Plot source to use if 'External Indicator' is selected.")
+
+// --- Volume & Logic Settings ---
+vol_spike_mult  = input.float(1.5, "Volume Spike Multiplier", minval=1.0, step=0.1, group=grp_res, tooltip="Multiplier for Volume MA to detect activity.")
+vol_key_only    = input.bool(true, "Check Vol at Key Levels Only", group=grp_res, tooltip="Only count volume spikes when price is touching a Boundary or Half Gap.")
+
 // =============================================================================
 // 2. ASSET TYPE DETECTION
 // =============================================================================
@@ -248,10 +258,84 @@ if gap_pct < opt_gap
     gap_dir := 0
 
 // =============================================================================
-// 5. POSITION STATE & SIGNAL LOGIC
+// 5. RESILIENCE & MARKET BIAS CALCULATION
 // =============================================================================
 
-// Position State
+// Helper to get Resilience Bias (1=Bull, -1=Bear, 0=Neutral)
+get_resilience_bias() =>
+    int rb = 0
+    if resilience_mode == "SPY Proxy (Internal)"
+        // Calculate SPY Half Gap internally
+        [spy_open, spy_close_prev] = request.security("SPY", "D", [open, close[1]], lookahead=barmerge.lookahead_off)
+        spy_hg = (spy_open + spy_close_prev) / 2
+        spy_close = request.security("SPY", timeframe.period, close)
+        if not na(spy_hg)
+            rb := spy_close > spy_hg ? 1 : -1
+
+    else if resilience_mode == "External Symbol"
+        // Check if external symbol is positive/negative (assuming oscillator around 0)
+        // OR check if close > prev close if it's a price chart.
+        // Better assumption: If it's a "Resilience" index, > 0 is bullish.
+        res_val = request.security(res_symbol, timeframe.period, close)
+        if not na(res_val)
+            rb := res_val > 0 ? 1 : -1
+
+    else if resilience_mode == "External Indicator (Source)"
+        // Check source value directly
+        if not na(res_source)
+            rb := res_source > 0 ? 1 : -1
+
+    else // None
+        rb := 0
+    rb
+
+res_bias_val = get_resilience_bias()
+res_bias_str = res_bias_val == 1 ? "BULLISH" : (res_bias_val == -1 ? "BEARISH" : "NEUTRAL")
+
+// =============================================================================
+// 6. LOGIC: VOLUME, TOUCHES, STATE
+// =============================================================================
+
+// 1. Key Level Touch Detection
+// We use a small tolerance (e.g. 0.05%) to detect touches
+touch_tol = session_pdc * 0.0005 // 0.05% tolerance
+is_touch_upper = math.abs(high - upper_b) <= touch_tol or math.abs(low - upper_b) <= touch_tol or (high >= upper_b and low <= upper_b)
+is_touch_lower = math.abs(high - lower_b) <= touch_tol or math.abs(low - lower_b) <= touch_tol or (high >= lower_b and low <= lower_b)
+is_touch_hg    = math.abs(high - half_gap) <= touch_tol or math.abs(low - half_gap) <= touch_tol or (high >= half_gap and low <= half_gap)
+is_key_touch   = is_touch_upper or is_touch_lower or is_touch_hg
+
+// 2. Volume Analysis
+vol_sma = ta.sma(volume, vol_len)
+is_vol_spike = volume > (vol_sma * vol_spike_mult)
+
+// Valid Volume Condition: Spike AND (Key Touch OR Mode is 'Anywhere')
+valid_vol_activity = is_vol_spike and (vol_key_only ? is_key_touch : true)
+
+// 3. Zone State Machine (Active vs Exhausted)
+var string zone_state = "ACTIVE"
+
+// Reset to ACTIVE at start of session
+if is_new_day
+    zone_state := "ACTIVE"
+
+// Logic:
+// If Price touches Key Level:
+//   If Volume Spike -> ACTIVE (Liquidity present, still redistributing)
+//   If NO Spike -> EXHAUSTED (Liquidity gone, prepare for breakout)
+if is_key_touch and not is_new_day
+    if valid_vol_activity
+        zone_state := "ACTIVE"
+    else
+        // Only switch to exhausted if bar closes? Or immediately?
+        // Let's use bar close to confirm volume
+        if barstate.isconfirmed
+            zone_state := "EXHAUSTED"
+
+// =============================================================================
+// 7. SIGNAL GENERATION
+// =============================================================================
+
+// Position State relative to HG
 hg_tolerance = half_gap * tol_pct
 var int pos_state = 0 // 0=AT, 1=ABOVE, -1=BELOW
 
@@ -263,76 +347,58 @@ if not na(half_gap)
     else
         pos_state := 0
 
-// Momentum Logic
+// Momentum
 is_bull_mom = (close > open) and (close > close[1])
 is_bear_mom = (close < open) and (close < close[1])
 
-// Volume Logic
-vol_sma = ta.sma(volume, vol_len)
-is_high_vol = volume > vol_sma
-
-// Time Held Counter
-var int state_counter = 0
-if pos_state == 1
-    state_counter := pos_state[1] == 1 ? state_counter + 1 : 1
-else if pos_state == -1
-    state_counter := pos_state[1] == -1 ? state_counter + 1 : 1
-else
-    state_counter := 0
-
-// Reset counter on new session
-if is_new_day
-    state_counter := 0
-
-// Signal Generation
+// Core Signal Logic
 var string signal_bias = "NEUTRAL"
 var float signal_target = na
 var string conf_level = "LOW"
 
-if gap_dir == -1 // Gap Down
-    if pos_state == 1 // Above HG
-        signal_bias := "BULLISH"
-        signal_target := session_pdc
-    else if pos_state == -1 // Below HG
-        signal_bias := "BEARISH"
-        signal_target := session_cdo
-    else
-        signal_bias := "NEUTRAL"
+// Regimes
+if zone_state == "ACTIVE"
+    // SCALP MODE
+    // Bias driven by Resilience + Position
+    // If Resilience says Bullish, we look to scalp Longs from Lower/HG to Upper
+    // If Resilience says Bearish, we look to scalp Shorts from Upper/HG to Lower
+
+    if res_bias_val == 1 // Resilience Bullish
+        signal_bias := "LONG SCALP"
+        signal_target := upper_b
+        conf_level := pos_state >= 0 ? "HIGH" : "MED" // High conf if already above/at HG
+
+    else if res_bias_val == -1 // Resilience Bearish
+        signal_bias := "SHORT SCALP"
+        signal_target := lower_b
+        conf_level := pos_state <= 0 ? "HIGH" : "MED"
+
+    else // Resilience Neutral
+        signal_bias := "NEUTRAL (Range)"
         signal_target := na
-else if gap_dir == 1 // Gap Up
-    if pos_state == 1 // Above HG
-        signal_bias := "BULLISH"
-        signal_target := session_cdo
-    else if pos_state == -1 // Below HG
-        signal_bias := "BEARISH"
-        signal_target := session_pdc
+        conf_level := "LOW"
+
+else // EXHAUSTED
+    // BREAKOUT MODE
+    // Bias driven by Resilience mainly
+    // If Bullish -> Breakout Long above Upper
+    // If Bearish -> Breakdown Short below Lower
+
+    if res_bias_val == 1
+        signal_bias := "BULLISH BREAKOUT"
+        // Target: Projected move (Zone size)
+        signal_target := upper_b + (upper_b - lower_b)
+        conf_level := "HIGH"
+
+    else if res_bias_val == -1
+        signal_bias := "BEARISH BREAKDOWN"
+        signal_target := lower_b - (upper_b - lower_b)
+        conf_level := "HIGH"
+
     else
-        signal_bias := "NEUTRAL"
+        signal_bias := "WAITING"
         signal_target := na
-else // Flat
-    signal_bias := "NEUTRAL"
-    signal_target := na
-
-// Confidence Scoring
-score = 0
-if is_high_vol
-    score := score + 1
-
-if (signal_bias == "BULLISH" and is_bull_mom) or (signal_bias == "BEARISH" and is_bear_mom)
-    score := score + 1
-
-if state_counter > 5
-    score := score + 1
-
-if score >= 3
-    conf_level := "HIGH"
-else if score >= 2
-    conf_level := "MEDIUM"
-else
-    conf_level := "LOW"
-
-if signal_bias == "NEUTRAL"
-    conf_level := "N/A"
+        conf_level := "LOW"
 
 // =============================================================================
 // 6. VISUALIZATION - BREAKING LINES
@@ -438,11 +504,11 @@ if show_table and barstate.islast and display_condition
     table.cell(info_table, 0, 4, "Gap", text_color=color.white, text_halign=text.align_left)
     table.cell(info_table, 1, 4, gap_display, text_color=color.white, text_halign=text.align_right)
 
-    // Row 5: Position State
-    pos_text = pos_state == 1 ? "ABOVE HG" : (pos_state == -1 ? "BELOW HG" : "AT HG")
-    pos_color = pos_state == 1 ? color.green : (pos_state == -1 ? color.red : color.gray)
-    table.cell(info_table, 0, 5, "Position", text_color=color.white, text_halign=text.align_left, text_size=size.small)
-    table.cell(info_table, 1, 5, pos_text, text_color=pos_color, text_halign=text.align_right, text_size=size.small)
+    // Row 5: Zone Mode & Resilience
+    mode_text = zone_state == "ACTIVE" ? "ACTIVE" : "EXHAUSTED"
+    mode_color = zone_state == "ACTIVE" ? color.green : color.orange
+    table.cell(info_table, 0, 5, "Mode", text_color=color.white, text_halign=text.align_left, text_size=size.small)
+    table.cell(info_table, 1, 5, mode_text + " (" + res_bias_str + ")", text_color=mode_color, text_halign=text.align_right, text_size=size.small)
 
 // =============================================================================
 // 8. ALERTS
@@ -450,10 +516,11 @@ if show_table and barstate.islast and display_condition
 
 // Alert conditions
 alertcondition(ta.cross(close, half_gap), "Half Gap Cross", "Price crossed Half Gap at {{close}}")
-alertcondition(ta.crossover(close, half_gap), "Half Gap Bullish Cross", "Price crossed ABOVE Half Gap - Potential Bullish")
-alertcondition(ta.crossunder(close, half_gap), "Half Gap Bearish Cross", "Price crossed BELOW Half Gap - Potential Bearish")
-alertcondition(signal_bias == "BULLISH" and conf_level == "HIGH" and signal_bias[1] != "BULLISH", "High Confidence Bullish", "HIGH confidence BULLISH signal generated")
-alertcondition(signal_bias == "BEARISH" and conf_level == "HIGH" and signal_bias[1] != "BEARISH", "High Confidence Bearish", "HIGH confidence BEARISH signal generated")
+alertcondition(zone_state == "EXHAUSTED" and zone_state[1] == "ACTIVE", "Zone Exhausted", "Zone switched to EXHAUSTED - Watch for Breakout")
+alertcondition(signal_bias == "LONG SCALP" and conf_level == "HIGH" and signal_bias[1] != "LONG SCALP", "High Conf LONG Scalp", "High Confidence LONG Scalp Signal")
+alertcondition(signal_bias == "SHORT SCALP" and conf_level == "HIGH" and signal_bias[1] != "SHORT SCALP", "High Conf SHORT Scalp", "High Confidence SHORT Scalp Signal")
+alertcondition(signal_bias == "BULLISH BREAKOUT", "Bullish Breakout", "Zone Breakout Signal: BULLISH")
+alertcondition(signal_bias == "BEARISH BREAKDOWN", "Bearish Breakdown", "Zone Breakout Signal: BEARISH")
 
 // Target reached alerts
 target_reached = not na(signal_target) and ((signal_bias == "BULLISH" and close >= signal_target) or (signal_bias == "BEARISH" and close <= signal_target))
