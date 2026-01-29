@@ -309,16 +309,19 @@ else if zone_state == "EXHAUSTED"
         conf_level := "LOW"
 else // TRENDING
     // Dynamic Targets & Trend Strength
-    if res_bias_val == 1 and is_bull_mom
-        // Strong trend if above EMA20
-        is_strong = close > ema20
+    is_uptrend = close > ema20
+    is_downtrend = close < ema20
+
+    if res_bias_val == 1 and is_uptrend
+        // Resilience Bullish + Above EMA20 -> Bullish Trend
+        is_strong = is_bull_mom // Upgrade to STRONG if momentum aligns
         signal_bias := is_strong ? "STRONG BULLISH TREND" : "BULLISH TREND"
         signal_target := close + (atr_val * trend_atr_mult)
         conf_level := is_strong ? "HIGH" : "MED"
 
-    else if res_bias_val == -1 and is_bear_mom
-        // Strong trend if below EMA20
-        is_strong = close < ema20
+    else if res_bias_val == -1 and is_downtrend
+        // Resilience Bearish + Below EMA20 -> Bearish Trend
+        is_strong = is_bear_mom // Upgrade to STRONG if momentum aligns
         signal_bias := is_strong ? "STRONG BEARISH TREND" : "BEARISH TREND"
         signal_target := close - (atr_val * trend_atr_mult)
         conf_level := is_strong ? "HIGH" : "MED"
@@ -372,19 +375,19 @@ fill(p_hg_top, p_hg_bot, should_plot_zones ? hg_fill_color : na, "Half Gap Zone"
 
 // Labels (Staggered with background for readability)
 if show_labels and display_condition and barstate.islast
-    // PDC
-    label.new(bar_index + label_offset_input, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick),
-              color=color.new(color.gray, 85), style=label.style_label_left,
+    // PDC (Base Offset)
+    label.new(bar_index + label_offset_input, session_pdc, "PDC " + str.tostring(session_pdc, format.mintick),
+              color=color.new(color.gray, 80), style=label.style_label_left,
               textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
 
-    // CDO (Offset +8)
-    label.new(bar_index + label_offset_input + 8, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick),
-              color=color.new(color.gray, 85), style=label.style_label_left,
+    // CDO (Offset +10)
+    label.new(bar_index + label_offset_input + 10, session_cdo, "Open " + str.tostring(session_cdo, format.mintick),
+              color=color.new(color.gray, 80), style=label.style_label_left,
               textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
 
-    // Half Gap (Offset +16)
-    label.new(bar_index + label_offset_input + 16, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick),
-              color=color.new(color.gray, 85), style=label.style_label_left,
+    // Half Gap (Offset +20)
+    label.new(bar_index + label_offset_input + 20, session_hg, "HG " + str.tostring(session_hg, format.mintick),
+              color=color.new(color.gray, 80), style=label.style_label_left,
               textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
 
 // =============================================================================
