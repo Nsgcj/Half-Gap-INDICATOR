@@ -10,8 +10,7 @@ indicator("Half Gap Liquidity Indicator [Multi-Asset]", overlay=true, shorttitle
 
 // --- Asset Type Detection ---
 grp_asset = "Asset Configuration"
-asset_options = ["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals", "Energy", "Indices"]
-asset_type = input.string("Auto-Detect", "Asset Type", options=asset_options, group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
+asset_type = input.string("Auto-Detect", "Asset Type", options=["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals", "Energy", "Indices"], group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
 
 // --- Session Settings ---
 grp_session = "Session Settings"
