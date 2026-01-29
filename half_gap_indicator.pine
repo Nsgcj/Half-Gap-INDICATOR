@@ -10,7 +10,8 @@ indicator("Half Gap Liquidity Indicator [Multi-Asset]", overlay=true, shorttitle
 
 // --- Asset Type Detection ---
 grp_asset = "Asset Configuration"
-asset_type = input.string("Auto-Detect", "Asset Type", options=["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals", "Energy", "Indices"], group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
+asset_options = ["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals", "Energy", "Indices"]
+asset_type = input.string("Auto-Detect", "Asset Type", options=asset_options, group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
 
 // --- Session Settings ---
 grp_session = "Session Settings"
@@ -37,69 +38,57 @@ show_zones    = input.bool(true, "Show Half Gap Zone", group=grp_visual, tooltip
 zone_width_input = input.float(0.15, "Half Gap Zone Width (%)", minval=0.05, maxval=1.0, step=0.05, group=grp_visual) / 100
 
 // Line break behavior
-break_lines   = input.bool(true, "Break Lines at Session Change", group=grp_visual, tooltip="If enabled, lines will restart each session instead of continuing")
+break_lines   = input.bool(true, "Break Lines at Session Change", group=grp_visual, tooltip="If enabled, lines will visually disconnect between sessions")
 
 // --- Calculation Settings ---
 grp_calc = "Calculation Settings"
 vol_len       = input.int(20, "Volume MA Length", minval=1, group=grp_calc)
 tol_pct       = input.float(0.01, "Position Tolerance (%)", minval=0.0, step=0.01, group=grp_calc) / 100
-
-// Minimum gap threshold to generate signals
 min_gap_pct   = input.float(0.05, "Minimum Gap % for Signals", minval=0.0, step=0.05, group=grp_calc, tooltip="Gaps smaller than this % are considered FLAT (no signal)")
 
 // --- Resilience (Market Bias) Settings ---
 grp_res = "Resilience & Logic"
-resilience_mode = input.string("SPY Proxy (Internal)", "Resilience Source", options=["SPY Proxy (Internal)", "External Symbol", "External Indicator (Source)", "None"], group=grp_res, tooltip="Source for market-wide bias (Resilience). 'SPY Proxy' checks if SPY is above/below its own Half Gap.")
-res_symbol      = input.symbol("SPY", "External Resilience Symbol", group=grp_res, tooltip="Ticker to use if 'External Symbol' is selected.")
-res_source      = input.source(close, "External Resilience Source", group=grp_res, tooltip="Plot source to use if 'External Indicator' is selected.")
+resilience_mode = input.string("SPY Proxy (Internal)", "Resilience Source", options=["SPY Proxy (Internal)", "External Symbol", "External Indicator (Source)", "None"], group=grp_res, tooltip="Source for market-wide bias.")
+res_symbol      = input.symbol("SPY", "External Resilience Symbol", group=grp_res)
+res_source      = input.source(close, "External Resilience Source", group=grp_res)
 
 // --- Volume & Logic Settings ---
-vol_spike_mult  = input.float(1.5, "Volume Spike Multiplier", minval=1.0, step=0.1, group=grp_res, tooltip="Multiplier for Volume MA to detect activity.")
-vol_key_only    = input.bool(true, "Check Vol at Key Levels Only", group=grp_res, tooltip="Only count volume spikes when price is touching a Boundary or Half Gap.")
+vol_spike_mult  = input.float(1.5, "Volume Spike Multiplier", minval=1.0, step=0.1, group=grp_res)
+vol_key_only    = input.bool(true, "Check Vol at Key Levels Only", group=grp_res)
 
 // =============================================================================
 // 2. ASSET TYPE DETECTION
 // =============================================================================
 
 detect_asset_type() =>
-    string detected = "Stocks/ETF" // default
+    string detected = "Stocks/ETF"
+    string ticker = syminfo.ticker
+    string type = syminfo.type
+    string root = syminfo.root
 
     if asset_type != "Auto-Detect"
         detected := asset_type
     else
-        // Auto-detection logic
-        ticker = syminfo.ticker
-        type = syminfo.type
-        root = syminfo.root
-
-        // Forex detection
         if type == "forex" or str.length(ticker) == 6
             detected := "Forex"
-        // Crypto detection
         else if type == "crypto" or str.contains(ticker, "BTC") or str.contains(ticker, "ETH") or str.contains(ticker, "USDT")
             detected := "Crypto"
-        // Gold/Metals detection
-        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or ticker == "GOLD" or str.contains(ticker, "SI") or str.contains(ticker, "PL")
+        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or ticker == "GOLD" or str.contains(ticker, "SI")
             detected := "Gold/Metals"
-        // Energy detection
-        else if str.contains(ticker, "CL") or str.contains(ticker, "NG") or str.contains(ticker, "RB") or str.contains(ticker, "HO") or str.contains(ticker, "XOM") or str.contains(ticker, "CVX")
+        else if str.contains(ticker, "CL") or str.contains(ticker, "NG") or str.contains(ticker, "RB") or str.contains(ticker, "HO")
             detected := "Energy"
-        // Indices detection (Prioritize popular futures roots)
-        else if str.contains(root, "ES") or str.contains(root, "NQ") or str.contains(root, "YM") or str.contains(root, "RTY") or str.contains(ticker, "SPX") or str.contains(ticker, "NDX") or str.contains(ticker, "US30") or str.contains(ticker, "US500") or str.contains(ticker, "NAS100")
+        // Prioritize indices/futures roots
+        else if str.contains(root, "ES") or str.contains(root, "NQ") or str.contains(root, "YM") or str.contains(root, "RTY") or str.contains(ticker, "SPX") or str.contains(ticker, "NDX") or str.contains(ticker, "US30")
             detected := "Indices"
-        // Generic Futures
         else if type == "futures" or str.contains(ticker, "!")
             detected := "Futures"
-        // Default to stocks
         else
             detected := "Stocks/ETF"
-
     detected
 
 current_asset_type = detect_asset_type()
 
 // --- Optimization Logic ---
-// Returns [session, reset_hour, min_gap, zone_width]
 get_optimized_params(type) =>
     string s = session_start
     int r = custom_reset_hour
@@ -108,116 +97,56 @@ get_optimized_params(type) =>
 
     if use_auto_settings
         if type == "Forex"
-            s := "1700-1700"
-            r := 17
-            g := 0.15 // Higher threshold for forex noise
-            z := 0.001 // Tight zones (0.1%)
+            s := "1700-1700"; r := 17; g := 0.15; z := 0.001
         else if type == "Crypto"
-            s := "0000-0000" // UTC midnight often best for crypto
-            r := 0
-            g := 0.5 // High volatility requires larger gaps
-            z := 0.005 // Wider zones (0.5%)
-        else if type == "Gold/Metals"
-            s := "1800-1700" // Futures session
-            r := 17
-            g := 0.1
-            z := 0.0015
-        else if type == "Energy"
-            s := "1800-1700"
-            r := 17
-            g := 0.2
-            z := 0.002
+            s := "0000-0000"; r := 0; g := 0.5; z := 0.005
+        else if type == "Gold/Metals" or type == "Energy" or type == "Futures"
+            s := "1800-1700"; r := 17; g := 0.1; z := 0.002
         else if type == "Indices"
-            // For Indices futures (ES/NQ), 0930-1615 is too restrictive and hides the 'new day' gap logic if reset is 17:00
-            // We set a wider session to ensure visibility, relying on reset logic for day definition
-            s := "1700-1700"
-            r := 17
-            g := 0.05
-            z := 0.0015
-        else if type == "Futures"
-            s := "1800-1700"
-            r := 17
-            g := 0.1
-            z := 0.002
-        else // Stocks/ETF
-            s := "0930-1600"
-            r := 17 // Irrelevant for stocks usually
-            g := 0.05
-            z := 0.0015
-
+            s := "1700-1700"; r := 17; g := 0.05; z := 0.0015
+        else // Stocks
+            s := "0930-1600"; r := 17; g := 0.05; z := 0.0015
     [s, r, g, z]
 
 [opt_session, opt_reset, opt_gap, opt_zone] = get_optimized_params(current_asset_type)
 
 // =============================================================================
-// 3. SESSION & NEW DAY DETECTION (MULTI-ASSET)
+// 3. DATA & SESSION LOGIC
 // =============================================================================
 
-// Function to detect new trading day based on asset type and optimized params
+// Detect New Day (Time-Shifted Logic)
 detect_new_day(asset_type_param) =>
     bool new_day_flag = false
+    is_24h = asset_type_param == "Forex" or asset_type_param == "Crypto" or asset_type_param == "Futures" or asset_type_param == "Gold/Metals" or asset_type_param == "Energy" or asset_type_param == "Indices"
 
-    // Check if we are using custom reset logic (Forex, Crypto, Futures, etc.)
-    is_24h_or_futures = asset_type_param == "Forex" or asset_type_param == "Crypto" or asset_type_param == "Futures" or asset_type_param == "Gold/Metals" or asset_type_param == "Energy" or asset_type_param == "Indices"
-
-    if is_24h_or_futures
-        // Robust 24-hour/Futures logic:
-        // Instead of checking for exact hour equality (which fails if data has gaps),
-        // we calculate the 'Business Day' by shifting time back by the reset hour.
-        // When this shifted day changes, we crossed the boundary.
-
-        // Offset in ms = reset_hour * 3600 * 1000
-        // If reset is 17 (5PM), a bar at 17:01 becomes 00:01 of the next 'business day'
-        // A bar at 16:59 becomes 23:59 of the current 'business day'
+    if is_24h
+        // Shift time back by reset hour to calculate "business day"
         time_offset = time - (opt_reset * 3600 * 1000)
-
-        // Check for day change in the shifted timeframe
-        // using timezone to respect DST if applicable, though generic 'dayofmonth' on shifted UTC timestamp is usually safer for pure interval logic
-        // But to respect user timezone preference:
         adjusted_day = dayofmonth(time_offset, time_zone)
         prev_adjusted_day = dayofmonth(time_offset[1], time_zone)
-
         new_day_flag := adjusted_day != prev_adjusted_day
-
-    else // Stocks/ETF
-        // Standard daily bar change
+    else
         new_day_flag := ta.change(time("D")) != 0
-
     new_day_flag
 
 is_new_day = detect_new_day(current_asset_type)
 
-// Session detection using optimized session string
-is_in_session(sess_str) =>
-    not na(time(timeframe.period, sess_str, time_zone))
-
-// Relax session filtering for 24h assets if using auto settings
-// This prevents missing data on assets like ES/Gold where session filters might hide the 'new day' bar
-is_24h_asset = current_asset_type == "Forex" or current_asset_type == "Crypto" or current_asset_type == "Futures" or current_asset_type == "Gold/Metals" or current_asset_type == "Energy" or current_asset_type == "Indices"
+// Session Filtering
+is_in_session(sess_str) => not na(time(timeframe.period, sess_str, time_zone))
+is_24h_asset = current_asset_type != "Stocks/ETF"
 should_use_reg_hours = use_reg_hours and not (use_auto_settings and is_24h_asset)
-
 in_session = should_use_reg_hours ? is_in_session(opt_session) : true
 
-// =============================================================================
-// 4. DATA ACQUISITION & CALCULATIONS
-// =============================================================================
+// Daily Data Acquisition (Global Scope to prevent errors)
+// We use ignore_invalid_symbol to prevent crashes on obscure assets
+d_open_req = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+d_close_prev_req = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 
-// Multi-asset compatible daily data retrieval
-// Refactored to avoid calling request.security inside conditional blocks
-get_daily_data() =>
-    // We use standard daily timeframe for all assets
-    // The "new day" logic handles the session resets, so fetching standard "D" data is sufficient and safe
-    d_open_req = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_off)
-    d_close_prev_req = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off)
-
-    [d_open_req, d_close_prev_req]
-
-[cdo, pdc] = get_daily_data()
-
-// Validate data quality
+cdo = d_open_req
+pdc = d_close_prev_req
 valid_data = not na(cdo) and not na(pdc) and cdo > 0 and pdc > 0
 
-// Session-locked values (persist throughout the session, don't recalculate)
+// Session State Management
 var float session_pdc = na
 var float session_cdo = na
 var float session_hg = na
@@ -227,21 +156,7 @@ var float session_upper_b = na
 var float session_lower_b = na
 var float session_gap_mag = na
 
-// Lock values at session start
-if is_new_day and valid_data
-    session_pdc := pdc
-    session_cdo := cdo
-    session_hg := (pdc + cdo) / 2
-    session_start_bar := bar_index
-
-    // Calculate gap metrics
-    session_gap_dir := cdo > pdc ? 1 : (cdo < pdc ? -1 : 0)
-    session_upper_b := math.max(pdc, cdo)
-    session_lower_b := math.min(pdc, cdo)
-    session_gap_mag := math.abs(cdo - pdc)
-
-// Initialize on first bar if needed
-if na(session_pdc) and valid_data
+if (is_new_day and valid_data) or (na(session_pdc) and valid_data)
     session_pdc := pdc
     session_cdo := cdo
     session_hg := (pdc + cdo) / 2
@@ -251,323 +166,205 @@ if na(session_pdc) and valid_data
     session_lower_b := math.min(pdc, cdo)
     session_gap_mag := math.abs(cdo - pdc)
 
-// Use session-locked values
-half_gap = session_hg
-gap_dir  = session_gap_dir
-upper_b  = session_upper_b
-lower_b  = session_lower_b
-gap_mag  = session_gap_mag
-
-// Calculate gap percentage
-gap_pct = (gap_mag / session_pdc) * 100
-
-// Override gap direction to FLAT if gap is too small using optimized threshold
+// Override flat gap
+gap_pct = (session_gap_mag / session_pdc) * 100
 if gap_pct < opt_gap
-    gap_dir := 0
+    session_gap_dir := 0
 
 // =============================================================================
-// 5. RESILIENCE & MARKET BIAS CALCULATION
+// 4. RESILIENCE CALCULATION
 // =============================================================================
 
-// Fetch Resilience Data (Global Scope - Unconditional)
-// We fetch all potential sources to avoid conditional request errors
-// Use ignore_invalid_symbol to prevent crashes if default tickers aren't available
-[spy_open_d, spy_close_prev_d] = request.security("SPY", "D", [open, close[1]], lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-spy_close_curr = request.security("SPY", timeframe.period, close, ignore_invalid_symbol=true)
-ext_symbol_val = request.security(res_symbol, timeframe.period, close, ignore_invalid_symbol=true)
+// Fetch external data globally
+[spy_d_open, spy_d_close1] = request.security("SPY", "D", [open, close[1]], lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+spy_cur_close = request.security("SPY", timeframe.period, close, ignore_invalid_symbol=true)
+ext_sym_close = request.security(res_symbol, timeframe.period, close, ignore_invalid_symbol=true)
 
-// Helper to get Resilience Bias (1=Bull, -1=Bear, 0=Neutral)
+// Calculate Bias
 get_resilience_bias(mode, spy_o, spy_cp, spy_c, ext_sym, ext_src) =>
     int rb = 0
-
     if mode == "SPY Proxy (Internal)"
-        // Calculate SPY Half Gap internally
         spy_hg = (spy_o + spy_cp) / 2
         if not na(spy_hg) and not na(spy_c)
             rb := spy_c > spy_hg ? 1 : -1
-
     else if mode == "External Symbol"
-        // Check if external symbol is positive/negative (assuming oscillator around 0)
         if not na(ext_sym)
             rb := ext_sym > 0 ? 1 : -1
-
     else if mode == "External Indicator (Source)"
-        // Check source value directly
         if not na(ext_src)
             rb := ext_src > 0 ? 1 : -1
-
-    else // None
-        rb := 0
     rb
 
-res_bias_val = get_resilience_bias(resilience_mode, spy_open_d, spy_close_prev_d, spy_close_curr, ext_symbol_val, res_source)
+res_bias_val = get_resilience_bias(resilience_mode, spy_d_open, spy_d_close1, spy_cur_close, ext_sym_close, res_source)
 res_bias_str = res_bias_val == 1 ? "BULLISH" : (res_bias_val == -1 ? "BEARISH" : "NEUTRAL")
 
 // =============================================================================
-// 6. LOGIC: VOLUME, TOUCHES, STATE
+// 5. ZONE STATE & SIGNALS
 // =============================================================================
 
-// 1. Key Level Touch Detection
-// We use a small tolerance (e.g. 0.05%) to detect touches
-touch_tol = session_pdc * 0.0005 // 0.05% tolerance
-is_touch_upper = math.abs(high - upper_b) <= touch_tol or math.abs(low - upper_b) <= touch_tol or (high >= upper_b and low <= upper_b)
-is_touch_lower = math.abs(high - lower_b) <= touch_tol or math.abs(low - lower_b) <= touch_tol or (high >= lower_b and low <= lower_b)
-is_touch_hg    = math.abs(high - half_gap) <= touch_tol or math.abs(low - half_gap) <= touch_tol or (high >= half_gap and low <= half_gap)
+// Touch Detection
+touch_tol = session_pdc * 0.0005 // 0.05%
+is_touch_upper = math.abs(high - session_upper_b) <= touch_tol or (high >= session_upper_b and low <= session_upper_b)
+is_touch_lower = math.abs(high - session_lower_b) <= touch_tol or (high >= session_lower_b and low <= session_lower_b)
+is_touch_hg    = math.abs(high - session_hg) <= touch_tol or (high >= session_hg and low <= session_hg)
 is_key_touch   = is_touch_upper or is_touch_lower or is_touch_hg
 
-// 2. Volume Analysis
+// Volume Analysis
 vol_sma = ta.sma(volume, vol_len)
 is_vol_spike = volume > (vol_sma * vol_spike_mult)
-
-// Valid Volume Condition: Spike AND (Key Touch OR Mode is 'Anywhere')
 valid_vol_activity = is_vol_spike and (vol_key_only ? is_key_touch : true)
 
-// 3. Zone State Machine (Active vs Exhausted)
+// State Machine
 var string zone_state = "ACTIVE"
 
-// Reset to ACTIVE at start of session
 if is_new_day
     zone_state := "ACTIVE"
 
-// Logic:
-// If Price touches Key Level:
-//   If Volume Spike -> ACTIVE (Liquidity present, still redistributing)
-//   If NO Spike -> EXHAUSTED (Liquidity gone, prepare for breakout)
 if is_key_touch and not is_new_day
     if valid_vol_activity
         zone_state := "ACTIVE"
-    else
-        // Only switch to exhausted if bar closes? Or immediately?
-        // Let's use bar close to confirm volume
-        if barstate.isconfirmed
-            zone_state := "EXHAUSTED"
+    else if barstate.isconfirmed
+        zone_state := "EXHAUSTED"
 
 // Trend Mode Check (Stale Zone)
-// If price moves significantly away from the Half Gap (> 5%), the redistribution zone is likely stale/irrelevant.
-// We switch to TRENDING mode to suppress mean-reversion scalp signals.
 dist_pct = math.abs(close - session_hg) / session_hg
 if dist_pct > 0.05
     zone_state := "TRENDING"
 
-// =============================================================================
-// 7. SIGNAL GENERATION
-// =============================================================================
+// Position Logic
+hg_tol_pos = session_hg * tol_pct
+var int pos_state = 0 // 1=Above, -1=Below
+if close > (session_hg + hg_tol_pos)
+    pos_state := 1
+else if close < (session_hg - hg_tol_pos)
+    pos_state := -1
+else
+    pos_state := 0
 
-// Position State relative to HG
-hg_tolerance = half_gap * tol_pct
-var int pos_state = 0 // 0=AT, 1=ABOVE, -1=BELOW
-
-if not na(half_gap)
-    if close > (half_gap + hg_tolerance)
-        pos_state := 1
-    else if close < (half_gap - hg_tolerance)
-        pos_state := -1
-    else
-        pos_state := 0
-
-// Momentum
-is_bull_mom = (close > open) and (close > close[1])
-is_bear_mom = (close < open) and (close < close[1])
-
-// Core Signal Logic
+// Signal Generation
 var string signal_bias = "NEUTRAL"
 var float signal_target = na
 var string conf_level = "LOW"
 
-// Regimes
 if zone_state == "ACTIVE"
-    // SCALP MODE
-    // Bias driven by Resilience + Position
-    // If Resilience says Bullish, we look to scalp Longs from Lower/HG to Upper
-    // If Resilience says Bearish, we look to scalp Shorts from Upper/HG to Lower
-
-    if res_bias_val == 1 // Resilience Bullish
+    // Scalp Mode
+    if res_bias_val == 1 // Resilience Bullish -> Buy dips
         signal_bias := "LONG SCALP"
-        signal_target := upper_b
-        conf_level := pos_state >= 0 ? "HIGH" : "MED" // High conf if already above/at HG
-
-    else if res_bias_val == -1 // Resilience Bearish
+        signal_target := session_upper_b
+        conf_level := pos_state >= 0 ? "HIGH" : "MED"
+    else if res_bias_val == -1 // Resilience Bearish -> Short rips
         signal_bias := "SHORT SCALP"
-        signal_target := lower_b
+        signal_target := session_lower_b
         conf_level := pos_state <= 0 ? "HIGH" : "MED"
-
-    else // Resilience Neutral
+    else
         signal_bias := "NEUTRAL (Range)"
         signal_target := na
         conf_level := "LOW"
-
-else // EXHAUSTED
-    // BREAKOUT MODE
-    // Bias driven by Resilience mainly
-    // If Bullish -> Breakout Long above Upper
-    // If Bearish -> Breakdown Short below Lower
-
+else if zone_state == "EXHAUSTED"
+    // Breakout Mode
     if res_bias_val == 1
         signal_bias := "BULLISH BREAKOUT"
-        // Target: Projected move (Zone size)
-        signal_target := upper_b + (upper_b - lower_b)
+        signal_target := session_upper_b + (session_upper_b - session_lower_b)
         conf_level := "HIGH"
-
     else if res_bias_val == -1
         signal_bias := "BEARISH BREAKDOWN"
-        signal_target := lower_b - (upper_b - lower_b)
+        signal_target := session_lower_b - (session_upper_b - session_lower_b)
         conf_level := "HIGH"
-
     else
         signal_bias := "WAITING"
         signal_target := na
         conf_level := "LOW"
-
 else // TRENDING
-    // Momentum/Trend Following Mode
-    // Price is far from zone, assume strong trend
     if res_bias_val == 1 and is_bull_mom
         signal_bias := "BULLISH TREND"
-        signal_target := na // Open ended
+        signal_target := na
         conf_level := "MED"
     else if res_bias_val == -1 and is_bear_mom
         signal_bias := "BEARISH TREND"
         signal_target := na
         conf_level := "MED"
     else
-        signal_bias := "TRENDING (No Signal)"
+        signal_bias := "TRENDING"
         signal_target := na
         conf_level := "LOW"
 
 // =============================================================================
-// 6. VISUALIZATION - BREAKING LINES
+// 6. VISUALIZATION
 // =============================================================================
 
-// Determine if we should display (in session AND valid data)
 display_condition = (use_reg_hours ? in_session : true) and not na(session_pdc)
 
-// For breaking lines: only show current session's data
-// We'll use plotted values that become 'na' on new session
-float pdc_plot = na
-float cdo_plot = na
-float hg_plot = na
+// Line Break Logic (Using Color Transparency)
+is_start_bar = bar_index == session_start_bar
+transp_val = break_lines and is_start_bar ? 100 : 0
 
-if display_condition
-    if break_lines
-        // Only plot if we're in current session (after session_start_bar)
-        if bar_index >= session_start_bar
-            pdc_plot := session_pdc
-            cdo_plot := session_cdo
-            hg_plot := session_hg
-    else
-        // Continuous lines (old behavior)
-        pdc_plot := session_pdc
-        cdo_plot := session_cdo
-        hg_plot := session_hg
+// Colors
+c_pdc_final = color.new(session_pdc == session_upper_b ? color_upper : color_lower, transp_val)
+c_cdo_final = color.new(session_cdo == session_upper_b ? color_upper : color_lower, transp_val)
+c_hg_final  = color.new(color_hg, transp_val)
 
-// Colors Logic
-c_pdc_line = session_pdc == upper_b ? color_upper : color_lower
-c_cdo_line = session_cdo == upper_b ? color_upper : color_lower
+// Plots
+p_pdc = plot(display_condition ? session_pdc : na, "PDC", color=c_pdc_final, linewidth=1)
+p_cdo = plot(display_condition ? session_cdo : na, "CDO", color=c_cdo_final, linewidth=1)
+p_hg  = plot(display_condition ? session_hg : na, "Half Gap", color=c_hg_final, style=plot.style_stepline, linewidth=2)
 
-// Line Break Logic Refinement
-// To ensure lines don't drag across sessions, we force 'na' on the very first bar of the session if break_lines is true.
-// This ensures plot() has a gap to respect.
-is_session_start = bar_index == session_start_bar
-plot_pdc = break_lines and is_session_start ? na : pdc_plot
-plot_cdo = break_lines and is_session_start ? na : cdo_plot
-plot_hg  = break_lines and is_session_start ? na : hg_plot
+// Zone Fill
+c_fill_base = session_gap_dir == 1 ? color_fill_up : (session_gap_dir == -1 ? color_fill_dn : color_fill_fl)
+// If session is exhausted, dim the zone (95% transparent)
+c_fill_state = zone_state == "EXHAUSTED" ? color.new(c_fill_base, 95) : c_fill_base
 
-// Plot Lines using style_linebr to respect NA values as breaks
-p_pdc = plot(plot_pdc, "PDC", color=c_pdc_line, style=plot.style_linebr, linewidth=1, trackprice=false)
-p_cdo = plot(plot_cdo, "CDO", color=c_cdo_line, style=plot.style_linebr, linewidth=1, trackprice=false)
-
-// Half Gap - slightly thicker and use stepline for distinction (stepline handles breaks well usually, but linebr is safer for explicit breaks)
-p_hg = plot(plot_hg, "Half Gap", color=color_hg, style=plot.style_linebr, linewidth=2, trackprice=false)
-
-// Zone Fill (Redistribution Zone between PDC and CDO)
-// Ensure fill respects the break by using the broken plot variables
-// Note: fill() between two linebr plots will also break if one of them is na
-c_fill = gap_dir == 1 ? color_fill_up : (gap_dir == -1 ? color_fill_dn : color_fill_fl)
-fill(p_pdc, p_cdo, display_condition ? c_fill : na, "Redistribution Zone")
+// Fix: Prevent opaque fill when transp_val is 0. Only apply 100% transparency on the break bar.
+fill_color_final = break_lines and is_start_bar ? color.new(c_fill_state, 100) : c_fill_state
+fill(p_pdc, p_cdo, display_condition ? fill_color_final : na, "Redistribution Zone")
 
 // Half Gap Highlight Zone
-// Move logic outside of local scope to fix "Cannot use 'plot' in local scope" error
 hg_top = session_hg * (1 + opt_zone)
 hg_bot = session_hg * (1 - opt_zone)
-
-// Determine if we should plot based on conditions
 should_plot_zones = show_zones and display_condition
 
-// Calculate plot values (na if not showing)
-hg_top_val = should_plot_zones ? (break_lines and bar_index >= session_start_bar ? hg_top : (not break_lines ? hg_top : na)) : na
-hg_bot_val = should_plot_zones ? (break_lines and bar_index >= session_start_bar ? hg_bot : (not break_lines ? hg_bot : na)) : na
+// We use the same transparency logic for the HG zone lines
+p_hg_top = plot(should_plot_zones ? hg_top : na, display=display.none)
+p_hg_bot = plot(should_plot_zones ? hg_bot : na, display=display.none)
 
-// Plot calls must be in global scope
-p_hg_top = plot(hg_top_val, display=display.none, trackprice=false)
-p_hg_bot = plot(hg_bot_val, display=display.none, trackprice=false)
+// Fix: Correct transparency logic for HG zone
+hg_fill_color = break_lines and is_start_bar ? color.new(color_hg, 100) : color.new(color_hg, 92)
+fill(p_hg_top, p_hg_bot, should_plot_zones ? hg_fill_color : na, "Half Gap Zone")
 
-// Fill must be in global scope
-fill(p_hg_top, p_hg_bot, should_plot_zones ? color.new(color_hg, 92) : na, "Half Gap Zone")
-
-// Labels (Only show on the last bar to avoid clutter)
+// Labels
 if show_labels and display_condition and barstate.islast
-    label.new(bar_index, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_line, textalign=text.align_left, size=size.small)
-    label.new(bar_index, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_line, textalign=text.align_left, size=size.small)
-    label.new(bar_index, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=color_hg, textalign=text.align_left, size=size.normal)
+    label.new(bar_index, session_pdc, "PDC: " + str.tostring(session_pdc, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
+    label.new(bar_index, session_cdo, "Open: " + str.tostring(session_cdo, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
+    label.new(bar_index, session_hg, "Half Gap: " + str.tostring(session_hg, format.mintick), color=color.new(color.black, 100), style=label.style_none, textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
 
 // =============================================================================
-// 7. INFO DASHBOARD
+// 7. DASHBOARD & ALERTS
 // =============================================================================
 
 var table info_table = table.new(position.bottom_right, 2, 6, bgcolor=color.new(color.black, 50), border_color=color.gray, border_width=1, frame_color=color.gray, frame_width=1)
 
 if show_table and barstate.islast and display_condition
-    // Row 0: Asset Type
+    // Row 0: Asset
     table.cell(info_table, 0, 0, "Asset", text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(info_table, 1, 0, current_asset_type, text_color=color.white, text_halign=text.align_right, text_size=size.small)
-
     // Row 1: Bias
     table.cell(info_table, 0, 1, "Bias", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 1, signal_bias, text_color=signal_bias=="BULLISH" ? color.green : (signal_bias=="BEARISH" ? color.red : color.gray), text_halign=text.align_right)
-
+    table.cell(info_table, 1, 1, signal_bias, text_color=signal_bias=="LONG SCALP" or signal_bias=="BULLISH BREAKOUT" or signal_bias=="BULLISH TREND" ? color.green : (signal_bias=="SHORT SCALP" or signal_bias=="BEARISH BREAKDOWN" or signal_bias=="BEARISH TREND" ? color.red : color.gray), text_halign=text.align_right)
     // Row 2: Target
     table.cell(info_table, 0, 2, "Target", text_color=color.white, text_halign=text.align_left)
     table.cell(info_table, 1, 2, not na(signal_target) ? str.tostring(signal_target, format.mintick) : "—", text_color=color.white, text_halign=text.align_right)
+    // Row 3: Mode
+    mode_text = zone_state == "ACTIVE" ? "ACTIVE" : (zone_state == "TRENDING" ? "TRENDING" : "EXHAUSTED")
+    mode_color = zone_state == "ACTIVE" ? color.green : (zone_state == "TRENDING" ? color.blue : color.orange)
+    table.cell(info_table, 0, 3, "Mode", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 3, mode_text, text_color=mode_color, text_halign=text.align_right)
+    // Row 4: Resilience
+    table.cell(info_table, 0, 4, "Resil.", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 4, res_bias_str, text_color=res_bias_val==1?color.green:(res_bias_val==-1?color.red:color.gray), text_halign=text.align_right)
 
-    // Row 3: Confidence
-    table.cell(info_table, 0, 3, "Conf", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 3, conf_level, text_color=conf_level=="HIGH" ? color.green : (conf_level=="MEDIUM" ? color.orange : color.gray), text_halign=text.align_right)
+// Alerts
+alertcondition(ta.cross(close, session_hg), "Half Gap Cross", "Price crossed Half Gap")
+alertcondition(zone_state == "EXHAUSTED" and zone_state[1] == "ACTIVE", "Zone Exhausted", "Zone switched to EXHAUSTED")
+alertcondition(target_reached = not na(signal_target) and ((signal_bias == "LONG SCALP" and close >= signal_target) or (signal_bias == "SHORT SCALP" and close <= signal_target)), "Target Reached", "Target Reached")
 
-    // Row 4: Gap Direction & Size
-    gap_display = (gap_dir==1 ? "UP " : (gap_dir==-1 ? "DN " : "FLAT ")) + str.tostring(gap_pct, "#.##") + "%"
-    table.cell(info_table, 0, 4, "Gap", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 4, gap_display, text_color=color.white, text_halign=text.align_right)
-
-    // Row 5: Zone Mode & Resilience
-    mode_text = zone_state == "ACTIVE" ? "ACTIVE" : "EXHAUSTED"
-    mode_color = zone_state == "ACTIVE" ? color.green : color.orange
-    table.cell(info_table, 0, 5, "Mode", text_color=color.white, text_halign=text.align_left, text_size=size.small)
-    table.cell(info_table, 1, 5, mode_text + " (" + res_bias_str + ")", text_color=mode_color, text_halign=text.align_right, text_size=size.small)
-
-// =============================================================================
-// 8. ALERTS
-// =============================================================================
-
-// Alert conditions
-alertcondition(ta.cross(close, half_gap), "Half Gap Cross", "Price crossed Half Gap at {{close}}")
-alertcondition(zone_state == "EXHAUSTED" and zone_state[1] == "ACTIVE", "Zone Exhausted", "Zone switched to EXHAUSTED - Watch for Breakout")
-alertcondition(signal_bias == "LONG SCALP" and conf_level == "HIGH" and signal_bias[1] != "LONG SCALP", "High Conf LONG Scalp", "High Confidence LONG Scalp Signal")
-alertcondition(signal_bias == "SHORT SCALP" and conf_level == "HIGH" and signal_bias[1] != "SHORT SCALP", "High Conf SHORT Scalp", "High Confidence SHORT Scalp Signal")
-alertcondition(signal_bias == "BULLISH BREAKOUT", "Bullish Breakout", "Zone Breakout Signal: BULLISH")
-alertcondition(signal_bias == "BEARISH BREAKDOWN", "Bearish Breakdown", "Zone Breakout Signal: BEARISH")
-
-// Target reached alerts
-target_reached = not na(signal_target) and ((signal_bias == "BULLISH" and close >= signal_target) or (signal_bias == "BEARISH" and close <= signal_target))
-
-alertcondition(target_reached, "Target Reached", "Price reached target level: {{close}}")
-
-// =============================================================================
-// 9. VISUAL ENHANCEMENTS
-// =============================================================================
-
-// Background color based on position state (subtle)
-bgcolor_pos = pos_state == 1 ? color.new(color.green, 98) : (pos_state == -1 ? color.new(color.red, 98) : na)
-bgcolor(display_condition ? bgcolor_pos : na, title="Position State Background")
-
-// Plot target level as dotted line
+// Target Plot
 plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na, "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
