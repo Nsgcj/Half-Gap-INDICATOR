@@ -432,7 +432,7 @@ alertcondition(target_reached_cond, "Target Reached", "Target Reached")
 plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na, "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
 
 // Background Color Polish (Bias Tint)
-bg_color_bias = na
+color bg_color_bias = na
 if str.contains(signal_bias, "BULLISH")
     bg_color_bias := color.new(color.green, 95)
 else if str.contains(signal_bias, "BEARISH")
