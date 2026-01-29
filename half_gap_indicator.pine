@@ -10,11 +10,12 @@ indicator("Half Gap Liquidity Indicator [Multi-Asset]", overlay=true, shorttitle
 
 // --- Asset Type Detection ---
 grp_asset = "Asset Configuration"
-asset_type = input.string("Auto-Detect", "Asset Type", options=["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals"], group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
+asset_type = input.string("Auto-Detect", "Asset Type", options=["Auto-Detect", "Stocks/ETF", "Forex", "Crypto", "Futures", "Gold/Metals", "Energy", "Indices"], group=grp_asset, tooltip="Auto-detect will attempt to identify asset type. Manual selection overrides.")
 
 // --- Session Settings ---
 grp_session = "Session Settings"
-session_start = input.session("0930-1600", "Trading Session (NY Time)", group=grp_session, tooltip="For Stocks: 0930-1600 | Forex: 1700-1700 | Futures: varies by contract")
+use_auto_settings = input.bool(true, "Use Optimized Defaults", group=grp_session, tooltip="If enabled, ignores manual session inputs below and uses optimized settings for the detected asset.")
+session_start = input.session("0930-1600", "Trading Session (NY Time)", group=grp_session, tooltip="Manual Override: Stocks: 0930-1600 | Forex: 1700-1700")
 time_zone     = input.string("America/New_York", "Timezone", options=["America/New_York", "America/Chicago", "Europe/London", "Asia/Tokyo", "UTC"], group=grp_session)
 use_reg_hours = input.bool(true, "Use Regular Hours Only", group=grp_session, tooltip="Filters logic to apply only within specified session. Disable for 24hr markets.")
 
@@ -33,7 +34,7 @@ color_fill_fl = input.color(color.new(color.gray, 90), "Zone Fill (Flat)", group
 show_labels   = input.bool(true, "Show Price Labels", group=grp_visual)
 show_table    = input.bool(true, "Show Info Panel", group=grp_visual)
 show_zones    = input.bool(true, "Show Half Gap Zone", group=grp_visual, tooltip="Highlight band around Half Gap")
-zone_width    = input.float(0.15, "Half Gap Zone Width (%)", minval=0.05, maxval=1.0, step=0.05, group=grp_visual) / 100
+zone_width_input = input.float(0.15, "Half Gap Zone Width (%)", minval=0.05, maxval=1.0, step=0.05, group=grp_visual) / 100
 
 // Line break behavior
 break_lines   = input.bool(true, "Break Lines at Session Change", group=grp_visual, tooltip="If enabled, lines will restart each session instead of continuing")
@@ -59,6 +60,7 @@ detect_asset_type() =>
         // Auto-detection logic
         ticker = syminfo.ticker
         type = syminfo.type
+        root = syminfo.root
 
         // Forex detection
         if type == "forex" or str.length(ticker) == 6
@@ -66,12 +68,18 @@ detect_asset_type() =>
         // Crypto detection
         else if type == "crypto" or str.contains(ticker, "BTC") or str.contains(ticker, "ETH") or str.contains(ticker, "USDT")
             detected := "Crypto"
-        // Futures detection
+        // Gold/Metals detection
+        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or ticker == "GOLD" or str.contains(ticker, "SI") or str.contains(ticker, "PL")
+            detected := "Gold/Metals"
+        // Energy detection
+        else if str.contains(ticker, "CL") or str.contains(ticker, "NG") or str.contains(ticker, "RB") or str.contains(ticker, "HO") or str.contains(ticker, "XOM") or str.contains(ticker, "CVX")
+            detected := "Energy"
+        // Indices detection
+        else if str.contains(ticker, "ES") or str.contains(ticker, "NQ") or str.contains(ticker, "YM") or str.contains(ticker, "RTY") or str.contains(ticker, "SPX") or str.contains(ticker, "NDX")
+            detected := "Indices"
+        // Generic Futures
         else if type == "futures" or str.contains(ticker, "!")
             detected := "Futures"
-        // Gold/Metals detection
-        else if str.contains(ticker, "GC") or str.contains(ticker, "XAU") or ticker == "GOLD"
-            detected := "Gold/Metals"
         // Default to stocks
         else
             detected := "Stocks/ETF"
@@ -80,28 +88,76 @@ detect_asset_type() =>
 
 current_asset_type = detect_asset_type()
 
+// --- Optimization Logic ---
+// Returns [session, reset_hour, min_gap, zone_width]
+get_optimized_params(type) =>
+    string s = session_start
+    int r = custom_reset_hour
+    float g = min_gap_pct
+    float z = zone_width_input
+
+    if use_auto_settings
+        if type == "Forex"
+            s := "1700-1700"
+            r := 17
+            g := 0.15 // Higher threshold for forex noise
+            z := 0.001 // Tight zones (0.1%)
+        else if type == "Crypto"
+            s := "0000-0000" // UTC midnight often best for crypto
+            r := 0
+            g := 0.5 // High volatility requires larger gaps
+            z := 0.005 // Wider zones (0.5%)
+        else if type == "Gold/Metals"
+            s := "1800-1700" // Futures session
+            r := 17
+            g := 0.1
+            z := 0.0015
+        else if type == "Energy"
+            s := "1800-1700"
+            r := 17
+            g := 0.2
+            z := 0.002
+        else if type == "Indices"
+            s := "0930-1615" // Extended cash session
+            r := 17
+            g := 0.05
+            z := 0.0015
+        else if type == "Futures"
+            s := "1800-1700"
+            r := 17
+            g := 0.1
+            z := 0.002
+        else // Stocks/ETF
+            s := "0930-1600"
+            r := 17 // Irrelevant for stocks usually
+            g := 0.05
+            z := 0.0015
+
+    [s, r, g, z]
+
+[opt_session, opt_reset, opt_gap, opt_zone] = get_optimized_params(current_asset_type)
+
 // =============================================================================
 // 3. SESSION & NEW DAY DETECTION (MULTI-ASSET)
 // =============================================================================
 
-// Function to detect new trading day based on asset type
+// Function to detect new trading day based on asset type and optimized params
 detect_new_day(asset_type_param) =>
     bool new_day_flag = false
 
-    if asset_type_param == "Forex" or asset_type_param == "Crypto"
-        // 24-hour markets: use custom reset time
+    // Check if we are using custom reset logic (Forex, Crypto, Futures, etc.)
+    // If opt_reset is 0 (UTC midnight for crypto) or 17 (NY close), use hour check
+    // Stocks typically rely on standard day change unless overridden
+
+    is_24h_or_futures = asset_type_param == "Forex" or asset_type_param == "Crypto" or asset_type_param == "Futures" or asset_type_param == "Gold/Metals" or asset_type_param == "Energy" or asset_type_param == "Indices"
+
+    if is_24h_or_futures
+        // 24-hour/Futures markets: use optimized reset time
         current_hour = hour(time, time_zone)
         prev_hour = hour(time[1], time_zone)
 
         // New day when we cross the reset hour
-        new_day_flag := current_hour == custom_reset_hour and prev_hour != custom_reset_hour
-
-    else if asset_type_param == "Futures" or asset_type_param == "Gold/Metals"
-        // Futures: detect settlement/rollover (typically 5 PM ET for most contracts)
-        // Use custom reset hour
-        current_hour = hour(time, time_zone)
-        prev_hour = hour(time[1], time_zone)
-        new_day_flag := current_hour == custom_reset_hour and prev_hour != custom_reset_hour
+        new_day_flag := current_hour == opt_reset and prev_hour != opt_reset
 
     else // Stocks/ETF
         // Standard daily bar change
@@ -111,11 +167,11 @@ detect_new_day(asset_type_param) =>
 
 is_new_day = detect_new_day(current_asset_type)
 
-// Session detection
+// Session detection using optimized session string
 is_in_session(sess_str) =>
     not na(time(timeframe.period, sess_str, time_zone))
 
-in_session = use_reg_hours ? is_in_session(session_start) : true
+in_session = use_reg_hours ? is_in_session(opt_session) : true
 
 // =============================================================================
 // 4. DATA ACQUISITION & CALCULATIONS
@@ -180,8 +236,8 @@ gap_mag  = session_gap_mag
 // Calculate gap percentage
 gap_pct = (gap_mag / session_pdc) * 100
 
-// Override gap direction to FLAT if gap is too small
-if gap_pct < min_gap_pct
+// Override gap direction to FLAT if gap is too small using optimized threshold
+if gap_pct < opt_gap
     gap_dir := 0
 
 // =============================================================================
@@ -324,8 +380,8 @@ fill(p_pdc, p_cdo, display_condition ? c_fill : na, "Redistribution Zone")
 
 // Half Gap Highlight Zone
 // Move logic outside of local scope to fix "Cannot use 'plot' in local scope" error
-hg_top = session_hg * (1 + zone_width)
-hg_bot = session_hg * (1 - zone_width)
+hg_top = session_hg * (1 + opt_zone)
+hg_bot = session_hg * (1 - opt_zone)
 
 // Determine if we should plot based on conditions
 should_plot_zones = show_zones and display_condition
