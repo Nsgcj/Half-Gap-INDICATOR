@@ -301,14 +301,24 @@ if display_condition
 c_pdc_line = session_pdc == upper_b ? color_upper : color_lower
 c_cdo_line = session_cdo == upper_b ? color_upper : color_lower
 
-// Plot Lines (will break if pdc_plot/cdo_plot/hg_plot become na)
-p_pdc = plot(pdc_plot, "PDC", color=c_pdc_line, style=plot.style_line, linewidth=1, trackprice=false)
-p_cdo = plot(cdo_plot, "CDO", color=c_cdo_line, style=plot.style_line, linewidth=1, trackprice=false)
+// Line Break Logic Refinement
+// To ensure lines don't drag across sessions, we force 'na' on the very first bar of the session if break_lines is true.
+// This ensures plot() has a gap to respect.
+is_session_start = bar_index == session_start_bar
+plot_pdc = break_lines and is_session_start ? na : pdc_plot
+plot_cdo = break_lines and is_session_start ? na : cdo_plot
+plot_hg  = break_lines and is_session_start ? na : hg_plot
 
-// Half Gap - slightly thicker and use stepline for distinction
-p_hg = plot(hg_plot, "Half Gap", color=color_hg, style=plot.style_stepline, linewidth=2, trackprice=false)
+// Plot Lines using style_linebr to respect NA values as breaks
+p_pdc = plot(plot_pdc, "PDC", color=c_pdc_line, style=plot.style_linebr, linewidth=1, trackprice=false)
+p_cdo = plot(plot_cdo, "CDO", color=c_cdo_line, style=plot.style_linebr, linewidth=1, trackprice=false)
+
+// Half Gap - slightly thicker and use stepline for distinction (stepline handles breaks well usually, but linebr is safer for explicit breaks)
+p_hg = plot(plot_hg, "Half Gap", color=color_hg, style=plot.style_linebr, linewidth=2, trackprice=false)
 
 // Zone Fill (Redistribution Zone between PDC and CDO)
+// Ensure fill respects the break by using the broken plot variables
+// Note: fill() between two linebr plots will also break if one of them is na
 c_fill = gap_dir == 1 ? color_fill_up : (gap_dir == -1 ? color_fill_dn : color_fill_fl)
 fill(p_pdc, p_cdo, display_condition ? c_fill : na, "Redistribution Zone")
 
