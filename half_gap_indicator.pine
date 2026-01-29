@@ -55,6 +55,10 @@ res_source      = input.source(close, "External Resilience Source", group=grp_re
 vol_spike_mult  = input.float(1.5, "Volume Spike Multiplier", minval=1.0, step=0.1, group=grp_res)
 vol_key_only    = input.bool(true, "Check Vol at Key Levels Only", group=grp_res)
 
+// --- Trend Configuration ---
+trend_atr_len   = input.int(14, "ATR Length for Targets", minval=1, group=grp_res)
+trend_atr_mult  = input.float(3.0, "ATR Multiplier for Trend Target", minval=0.5, step=0.1, group=grp_res)
+
 // =============================================================================
 // 2. ASSET TYPE DETECTION
 // =============================================================================
@@ -209,7 +213,12 @@ get_resilience_bias(mode, spy_o, spy_cp, spy_c, ext_sym, ext_src) =>
             rb := ext_src > 0 ? 1 : -1
     rb
 
-res_bias_val = get_resilience_bias(resilience_mode, spy_d_open, spy_d_close1, spy_cur_close, ext_sym_close, res_source)
+res_bias_val_raw = get_resilience_bias(resilience_mode, spy_d_open, spy_d_close1, spy_cur_close, ext_sym_close, res_source)
+
+// Invert Resilience for Gold/Metals (inverse correlation with equities)
+bool invert_res = current_asset_type == "Gold/Metals"
+int res_bias_val = invert_res ? -res_bias_val_raw : res_bias_val_raw
+
 res_bias_str = res_bias_val == 1 ? "BULLISH" : (res_bias_val == -1 ? "BEARISH" : "NEUTRAL")
 
 // =============================================================================
@@ -293,14 +302,24 @@ else if zone_state == "EXHAUSTED"
         signal_target := na
         conf_level := "LOW"
 else // TRENDING
+    // Dynamic Targets & Trend Strength
+    atr_val = ta.atr(trend_atr_len)
+    ema20 = ta.ema(close, 20)
+
     if res_bias_val == 1 and is_bull_mom
-        signal_bias := "BULLISH TREND"
-        signal_target := na
-        conf_level := "MED"
+        // Strong trend if above EMA20
+        is_strong = close > ema20
+        signal_bias := is_strong ? "STRONG BULLISH TREND" : "BULLISH TREND"
+        signal_target := close + (atr_val * trend_atr_mult)
+        conf_level := is_strong ? "HIGH" : "MED"
+
     else if res_bias_val == -1 and is_bear_mom
-        signal_bias := "BEARISH TREND"
-        signal_target := na
-        conf_level := "MED"
+        // Strong trend if below EMA20
+        is_strong = close < ema20
+        signal_bias := is_strong ? "STRONG BEARISH TREND" : "BEARISH TREND"
+        signal_target := close - (atr_val * trend_atr_mult)
+        conf_level := is_strong ? "HIGH" : "MED"
+
     else
         signal_bias := "TRENDING"
         signal_target := na
