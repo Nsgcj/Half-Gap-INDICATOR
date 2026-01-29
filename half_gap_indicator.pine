@@ -74,8 +74,8 @@ detect_asset_type() =>
         // Energy detection
         else if str.contains(ticker, "CL") or str.contains(ticker, "NG") or str.contains(ticker, "RB") or str.contains(ticker, "HO") or str.contains(ticker, "XOM") or str.contains(ticker, "CVX")
             detected := "Energy"
-        // Indices detection
-        else if str.contains(ticker, "ES") or str.contains(ticker, "NQ") or str.contains(ticker, "YM") or str.contains(ticker, "RTY") or str.contains(ticker, "SPX") or str.contains(ticker, "NDX")
+        // Indices detection (Prioritize popular futures roots)
+        else if str.contains(root, "ES") or str.contains(root, "NQ") or str.contains(root, "YM") or str.contains(root, "RTY") or str.contains(ticker, "SPX") or str.contains(ticker, "NDX") or str.contains(ticker, "US30") or str.contains(ticker, "US500") or str.contains(ticker, "NAS100")
             detected := "Indices"
         // Generic Futures
         else if type == "futures" or str.contains(ticker, "!")
@@ -118,7 +118,9 @@ get_optimized_params(type) =>
             g := 0.2
             z := 0.002
         else if type == "Indices"
-            s := "0930-1615" // Extended cash session
+            // For Indices futures (ES/NQ), 0930-1615 is too restrictive and hides the 'new day' gap logic if reset is 17:00
+            // We set a wider session to ensure visibility, relying on reset logic for day definition
+            s := "1700-1700"
             r := 17
             g := 0.05
             z := 0.0015
@@ -171,7 +173,12 @@ is_new_day = detect_new_day(current_asset_type)
 is_in_session(sess_str) =>
     not na(time(timeframe.period, sess_str, time_zone))
 
-in_session = use_reg_hours ? is_in_session(opt_session) : true
+// Relax session filtering for 24h assets if using auto settings
+// This prevents missing data on assets like ES/Gold where session filters might hide the 'new day' bar
+is_24h_asset = current_asset_type == "Forex" or current_asset_type == "Crypto" or current_asset_type == "Futures" or current_asset_type == "Gold/Metals" or current_asset_type == "Energy" or current_asset_type == "Indices"
+should_use_reg_hours = use_reg_hours and not (use_auto_settings and is_24h_asset)
+
+in_session = should_use_reg_hours ? is_in_session(opt_session) : true
 
 // =============================================================================
 // 4. DATA ACQUISITION & CALCULATIONS
