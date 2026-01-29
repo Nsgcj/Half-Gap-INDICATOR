@@ -375,21 +375,24 @@ p_hg_bot = plot(should_plot_zones ? hg_bot : na, display=display.none)
 hg_fill_color = break_lines and is_start_bar ? color.new(color_hg, 100) : color.new(color_hg, 92)
 fill(p_hg_top, p_hg_bot, should_plot_zones ? hg_fill_color : na, "Half Gap Zone")
 
-// Labels (Staggered with background for readability)
+// Labels (High Contrast & Wide Stagger)
 if show_labels and display_condition and barstate.islast
+    // Use darker background for better contrast on all timeframes
+    bg_col = color.new(color.black, 60)
+
     // PDC (Base Offset)
     label.new(bar_index + label_offset_input, session_pdc, "PDC " + str.tostring(session_pdc, format.mintick),
-              color=color.new(color.gray, 80), style=label.style_label_left,
+              color=bg_col, style=label.style_label_left,
               textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
 
-    // CDO (Offset +10)
-    label.new(bar_index + label_offset_input + 10, session_cdo, "Open " + str.tostring(session_cdo, format.mintick),
-              color=color.new(color.gray, 80), style=label.style_label_left,
+    // CDO (Offset +12)
+    label.new(bar_index + label_offset_input + 12, session_cdo, "Open " + str.tostring(session_cdo, format.mintick),
+              color=bg_col, style=label.style_label_left,
               textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
 
-    // Half Gap (Offset +20)
-    label.new(bar_index + label_offset_input + 20, session_hg, "HG " + str.tostring(session_hg, format.mintick),
-              color=color.new(color.gray, 80), style=label.style_label_left,
+    // Half Gap (Offset +24)
+    label.new(bar_index + label_offset_input + 24, session_hg, "HG " + str.tostring(session_hg, format.mintick),
+              color=bg_col, style=label.style_label_left,
               textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
 
 // =============================================================================
