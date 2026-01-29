@@ -228,6 +228,10 @@ vol_sma = ta.sma(volume, vol_len)
 is_vol_spike = volume > (vol_sma * vol_spike_mult)
 valid_vol_activity = is_vol_spike and (vol_key_only ? is_key_touch : true)
 
+// Momentum Logic
+is_bull_mom = close > open and close > close[1]
+is_bear_mom = close < open and close < close[1]
+
 // State Machine
 var string zone_state = "ACTIVE"
 
