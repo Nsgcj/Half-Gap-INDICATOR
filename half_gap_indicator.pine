@@ -378,7 +378,10 @@ if show_table and barstate.islast and display_condition
 // Alerts
 alertcondition(ta.cross(close, session_hg), "Half Gap Cross", "Price crossed Half Gap")
 alertcondition(zone_state == "EXHAUSTED" and zone_state[1] == "ACTIVE", "Zone Exhausted", "Zone switched to EXHAUSTED")
-alertcondition(target_reached = not na(signal_target) and ((signal_bias == "LONG SCALP" and close >= signal_target) or (signal_bias == "SHORT SCALP" and close <= signal_target)), "Target Reached", "Target Reached")
+
+// Calculate target reached condition separately
+target_reached_cond = not na(signal_target) and ((signal_bias == "LONG SCALP" and close >= signal_target) or (signal_bias == "SHORT SCALP" and close <= signal_target))
+alertcondition(target_reached_cond, "Target Reached", "Target Reached")
 
 // Target Plot
 plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na, "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
