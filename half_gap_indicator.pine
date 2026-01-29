@@ -259,6 +259,10 @@ dist_pct = math.abs(close - session_hg) / session_hg
 if dist_pct > 0.05
     zone_state := "TRENDING"
 
+// Global Technicals (Must be calculated every bar)
+atr_val = ta.atr(trend_atr_len)
+ema20 = ta.ema(close, 20)
+
 // Position Logic
 hg_tol_pos = session_hg * tol_pct
 var int pos_state = 0 // 1=Above, -1=Below
@@ -304,9 +308,6 @@ else if zone_state == "EXHAUSTED"
         conf_level := "LOW"
 else // TRENDING
     // Dynamic Targets & Trend Strength
-    atr_val = ta.atr(trend_atr_len)
-    ema20 = ta.ema(close, 20)
-
     if res_bias_val == 1 and is_bull_mom
         // Strong trend if above EMA20
         is_strong = close > ema20
