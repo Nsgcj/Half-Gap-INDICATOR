@@ -375,23 +375,32 @@ p_hg_bot = plot(should_plot_zones ? hg_bot : na, display=display.none)
 hg_fill_color = break_lines and is_start_bar ? color.new(color_hg, 100) : color.new(color_hg, 92)
 fill(p_hg_top, p_hg_bot, should_plot_zones ? hg_fill_color : na, "Half Gap Zone")
 
-// Labels (High Contrast & Wide Stagger)
+// Labels (High Contrast & Wide Stagger) - Replay Safe
+var label lbl_pdc = na
+var label lbl_cdo = na
+var label lbl_hg = na
+
 if show_labels and display_condition and barstate.islast
+    // Delete old labels to prevent duplication in replay mode
+    label.delete(lbl_pdc)
+    label.delete(lbl_cdo)
+    label.delete(lbl_hg)
+
     // Use darker background for better contrast on all timeframes
     bg_col = color.new(color.black, 60)
 
     // PDC (Base Offset)
-    label.new(bar_index + label_offset_input, session_pdc, "PDC " + str.tostring(session_pdc, format.mintick),
+    lbl_pdc := label.new(bar_index + label_offset_input, session_pdc, "PDC " + str.tostring(session_pdc, format.mintick),
               color=bg_col, style=label.style_label_left,
               textcolor=c_pdc_final, textalign=text.align_left, size=size.small)
 
     // CDO (Offset +12)
-    label.new(bar_index + label_offset_input + 12, session_cdo, "Open " + str.tostring(session_cdo, format.mintick),
+    lbl_cdo := label.new(bar_index + label_offset_input + 12, session_cdo, "Open " + str.tostring(session_cdo, format.mintick),
               color=bg_col, style=label.style_label_left,
               textcolor=c_cdo_final, textalign=text.align_left, size=size.small)
 
     // Half Gap (Offset +24)
-    label.new(bar_index + label_offset_input + 24, session_hg, "HG " + str.tostring(session_hg, format.mintick),
+    lbl_hg := label.new(bar_index + label_offset_input + 24, session_hg, "HG " + str.tostring(session_hg, format.mintick),
               color=bg_col, style=label.style_label_left,
               textcolor=c_hg_final, textalign=text.align_left, size=size.normal)
 
@@ -416,9 +425,14 @@ if show_table and barstate.islast and display_condition
     mode_color = zone_state == "ACTIVE" ? color.green : (zone_state == "TRENDING" ? color.blue : color.orange)
     table.cell(info_table, 0, 3, "Mode", text_color=color.white, text_halign=text.align_left)
     table.cell(info_table, 1, 3, mode_text, text_color=mode_color, text_halign=text.align_right)
-    // Row 4: Resilience
-    table.cell(info_table, 0, 4, "Resil.", text_color=color.white, text_halign=text.align_left)
-    table.cell(info_table, 1, 4, res_bias_str, text_color=res_bias_val==1?color.green:(res_bias_val==-1?color.red:color.gray), text_halign=text.align_right)
+
+    // Row 4: Confidence
+    table.cell(info_table, 0, 4, "Conf", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 4, conf_level, text_color=conf_level=="HIGH"?color.green:(conf_level=="MED"?color.orange:color.gray), text_halign=text.align_right)
+
+    // Row 5: Resilience
+    table.cell(info_table, 0, 5, "Resil.", text_color=color.white, text_halign=text.align_left)
+    table.cell(info_table, 1, 5, res_bias_str, text_color=res_bias_val==1?color.green:(res_bias_val==-1?color.red:color.gray), text_halign=text.align_right)
 
 // Alerts
 alertcondition(ta.cross(close, session_hg), "Half Gap Cross", "Price crossed Half Gap")
@@ -431,11 +445,19 @@ alertcondition(target_reached_cond, "Target Reached", "Target Reached")
 // Target Plot
 plot(display_condition and not na(signal_target) and bar_index >= session_start_bar ? signal_target : na, "Target", color=color.new(color.yellow, 50), style=plot.style_circles, linewidth=1, trackprice=true)
 
-// Background Color Polish (Bias Tint)
+// Background Color Polish (Active/Exit Bias Tint)
+// Stronger tint on ACTIVE/EXHAUSTED modes to highlight opportunities
 color bg_color_bias = na
-if str.contains(signal_bias, "BULLISH")
-    bg_color_bias := color.new(color.green, 95)
+is_scalp = zone_state == "ACTIVE" and str.contains(signal_bias, "SCALP")
+is_break = zone_state == "EXHAUSTED" and str.contains(signal_bias, "BREAK")
+
+if is_scalp
+    bg_color_bias := str.contains(signal_bias, "LONG") ? color.new(color.green, 94) : color.new(color.red, 94)
+else if is_break
+    bg_color_bias := str.contains(signal_bias, "BULLISH") ? color.new(color.green, 94) : color.new(color.red, 94)
+else if str.contains(signal_bias, "BULLISH")
+    bg_color_bias := color.new(color.green, 96) // Fainter for trending
 else if str.contains(signal_bias, "BEARISH")
-    bg_color_bias := color.new(color.red, 95)
+    bg_color_bias := color.new(color.red, 96)
 
 bgcolor(display_condition ? bg_color_bias : na, title="Signal Bias Background")
