@@ -122,29 +122,16 @@ in_session = use_reg_hours ? is_in_session(session_start) : true
 // =============================================================================
 
 // Multi-asset compatible daily data retrieval
-get_daily_data(asset_type_param) =>
-    float d_open = na
-    float d_close_prev = na
+// Refactored to avoid calling request.security inside conditional blocks
+get_daily_data() =>
+    // We use standard daily timeframe for all assets
+    // The "new day" logic handles the session resets, so fetching standard "D" data is sufficient and safe
+    d_open_req = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_off)
+    d_close_prev_req = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off)
 
-    if asset_type_param == "Forex" or asset_type_param == "Crypto"
-        // For 24hr markets, we need to manually track session boundaries
-        // Use a custom timeframe based on reset hour
+    [d_open_req, d_close_prev_req]
 
-        // Method: Use standard daily timeframe but be aware it may not align perfectly
-        // For true accuracy, would need to build custom session logic
-        // For now, using standard "D" with awareness of limitations
-
-        d_open := request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_off)
-        d_close_prev := request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off)
-
-    else
-        // Standard approach for gapped markets (stocks, futures, metals)
-        d_open := request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_off)
-        d_close_prev := request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off)
-
-    [d_open, d_close_prev]
-
-[cdo, pdc] = get_daily_data(current_asset_type)
+[cdo, pdc] = get_daily_data()
 
 // Validate data quality
 valid_data = not na(cdo) and not na(pdc) and cdo > 0 and pdc > 0
