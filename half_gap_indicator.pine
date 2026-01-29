@@ -158,18 +158,26 @@ detect_new_day(asset_type_param) =>
     bool new_day_flag = false
 
     // Check if we are using custom reset logic (Forex, Crypto, Futures, etc.)
-    // If opt_reset is 0 (UTC midnight for crypto) or 17 (NY close), use hour check
-    // Stocks typically rely on standard day change unless overridden
-
     is_24h_or_futures = asset_type_param == "Forex" or asset_type_param == "Crypto" or asset_type_param == "Futures" or asset_type_param == "Gold/Metals" or asset_type_param == "Energy" or asset_type_param == "Indices"
 
     if is_24h_or_futures
-        // 24-hour/Futures markets: use optimized reset time
-        current_hour = hour(time, time_zone)
-        prev_hour = hour(time[1], time_zone)
+        // Robust 24-hour/Futures logic:
+        // Instead of checking for exact hour equality (which fails if data has gaps),
+        // we calculate the 'Business Day' by shifting time back by the reset hour.
+        // When this shifted day changes, we crossed the boundary.
 
-        // New day when we cross the reset hour
-        new_day_flag := current_hour == opt_reset and prev_hour != opt_reset
+        // Offset in ms = reset_hour * 3600 * 1000
+        // If reset is 17 (5PM), a bar at 17:01 becomes 00:01 of the next 'business day'
+        // A bar at 16:59 becomes 23:59 of the current 'business day'
+        time_offset = time - (opt_reset * 3600 * 1000)
+
+        // Check for day change in the shifted timeframe
+        // using timezone to respect DST if applicable, though generic 'dayofmonth' on shifted UTC timestamp is usually safer for pure interval logic
+        // But to respect user timezone preference:
+        adjusted_day = dayofmonth(time_offset, time_zone)
+        prev_adjusted_day = dayofmonth(time_offset[1], time_zone)
+
+        new_day_flag := adjusted_day != prev_adjusted_day
 
     else // Stocks/ETF
         // Standard daily bar change
@@ -334,6 +342,13 @@ if is_key_touch and not is_new_day
         if barstate.isconfirmed
             zone_state := "EXHAUSTED"
 
+// Trend Mode Check (Stale Zone)
+// If price moves significantly away from the Half Gap (> 5%), the redistribution zone is likely stale/irrelevant.
+// We switch to TRENDING mode to suppress mean-reversion scalp signals.
+dist_pct = math.abs(close - session_hg) / session_hg
+if dist_pct > 0.05
+    zone_state := "TRENDING"
+
 // =============================================================================
 // 7. SIGNAL GENERATION
 // =============================================================================
@@ -400,6 +415,22 @@ else // EXHAUSTED
 
     else
         signal_bias := "WAITING"
+        signal_target := na
+        conf_level := "LOW"
+
+else // TRENDING
+    // Momentum/Trend Following Mode
+    // Price is far from zone, assume strong trend
+    if res_bias_val == 1 and is_bull_mom
+        signal_bias := "BULLISH TREND"
+        signal_target := na // Open ended
+        conf_level := "MED"
+    else if res_bias_val == -1 and is_bear_mom
+        signal_bias := "BEARISH TREND"
+        signal_target := na
+        conf_level := "MED"
+    else
+        signal_bias := "TRENDING (No Signal)"
         signal_target := na
         conf_level := "LOW"
 
