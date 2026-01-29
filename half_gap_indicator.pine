@@ -326,17 +326,23 @@ c_fill = gap_dir == 1 ? color_fill_up : (gap_dir == -1 ? color_fill_dn : color_f
 fill(p_pdc, p_cdo, display_condition ? c_fill : na, "Redistribution Zone")
 
 // Half Gap Highlight Zone
-if show_zones and display_condition
-    hg_top = session_hg * (1 + zone_width)
-    hg_bot = session_hg * (1 - zone_width)
+// Move logic outside of local scope to fix "Cannot use 'plot' in local scope" error
+hg_top = session_hg * (1 + zone_width)
+hg_bot = session_hg * (1 - zone_width)
 
-    hg_top_plot = break_lines and bar_index >= session_start_bar ? hg_top : (not break_lines ? hg_top : na)
-    hg_bot_plot = break_lines and bar_index >= session_start_bar ? hg_bot : (not break_lines ? hg_bot : na)
+// Determine if we should plot based on conditions
+should_plot_zones = show_zones and display_condition
 
-    p_hg_top = plot(hg_top_plot, display=display.none, trackprice=false)
-    p_hg_bot = plot(hg_bot_plot, display=display.none, trackprice=false)
+// Calculate plot values (na if not showing)
+hg_top_val = should_plot_zones ? (break_lines and bar_index >= session_start_bar ? hg_top : (not break_lines ? hg_top : na)) : na
+hg_bot_val = should_plot_zones ? (break_lines and bar_index >= session_start_bar ? hg_bot : (not break_lines ? hg_bot : na)) : na
 
-    fill(p_hg_top, p_hg_bot, color.new(color_hg, 92), "Half Gap Zone")
+// Plot calls must be in global scope
+p_hg_top = plot(hg_top_val, display=display.none, trackprice=false)
+p_hg_bot = plot(hg_bot_val, display=display.none, trackprice=false)
+
+// Fill must be in global scope
+fill(p_hg_top, p_hg_bot, should_plot_zones ? color.new(color_hg, 92) : na, "Half Gap Zone")
 
 // Labels (Only show on the last bar to avoid clutter)
 if show_labels and display_condition and barstate.islast
